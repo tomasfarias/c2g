@@ -1,0 +1,16 @@
+[package]
+name = "c2g"
+version = "0.1.0"
+authors = ["Tomas Farias <tomas@tomasfarias.dev>"]
+edition = "2018"
+
+[dependencies]
+clap = "2.33"
+env_logger = "0.8"
+gif = "0.11"
+image = "0.23"
+log = "0.4"
+pgn-reader = "0.17"
+resvg = "0.12"
+shakmaty = "0.18"
+usvg = "0.12"
