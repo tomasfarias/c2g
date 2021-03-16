@@ -5,6 +5,7 @@ use std::io;
 use clap::{App, Arg};
 use pgn_reader::BufferedReader;
 
+use crate::error::C2GError;
 use crate::giffer::PGNGiffer;
 
 pub struct Chess2Gif<'a> {
@@ -17,7 +18,7 @@ impl<'a> Chess2Gif<'a> {
         Self::new_from(std::env::args_os().into_iter()).unwrap_or_else(|e| e.exit())
     }
 
-    pub fn new_from<I, T>(args: I) -> Result<Self, clap::Error>
+    pub fn new_from<I, T>(args: I) -> Result<Self, C2GError>
     where
         I: Iterator<Item = T>,
         T: Into<OsString> + Clone,
@@ -88,7 +89,11 @@ impl<'a> Chess2Gif<'a> {
         let matches = app.get_matches_from_safe(args)?;
 
         let size = u32::from_str_radix(matches.value_of("size").expect("Size must be defined"), 10)
-            .unwrap();
+            .expect("Size must be a positive number");
+
+        if size % 8 != 0 {
+            return Err(C2GError::NotDivisibleBy8);
+        }
 
         let pgn = if matches.value_of("PGN").is_some() {
             Some(matches.value_of("PGN").unwrap().to_owned())
@@ -107,27 +112,42 @@ impl<'a> Chess2Gif<'a> {
 
         let dark: [u8; 4] = clap::values_t_or_exit!(matches, "dark", u8)
             .try_into()
-            .unwrap();
+            .expect("Invalid dark color");
         let light: [u8; 4] = clap::values_t_or_exit!(matches, "light", u8)
             .try_into()
-            .unwrap();
+            .expect("Invalid light color");
 
         Ok(Chess2Gif {
             pgn: pgn,
-            giffer: PGNGiffer::new(pieces_path, font_path, size, output, 100, dark, light),
+            giffer: PGNGiffer::new(pieces_path, font_path, size, output, 100, dark, light)?,
         })
     }
 
-    pub fn run(mut self) {
+    pub fn run(mut self) -> Result<(), C2GError> {
         log::info!("Reading PGN");
-        if let Some(pgn) = self.pgn {
+        let result = if let Some(pgn) = self.pgn {
             let mut reader = BufferedReader::new_cursor(&pgn[..]);
-            reader.read_game(&mut self.giffer);
+            match reader.read_game(&mut self.giffer) {
+                Ok(result) => match result {
+                    // result contains Option<Result<(), C2GError>>
+                    Some(r) => Ok(r.unwrap()),
+                    None => Ok(()),
+                },
+                Err(e) => Err(C2GError::ReadGame { source: e }),
+            }
         } else {
             let stdin = io::stdin();
             let mut reader = BufferedReader::new(stdin);
-            reader.read_game(&mut self.giffer);
-        }
+            match reader.read_game(&mut self.giffer) {
+                Ok(result) => match result {
+                    // result contains Option<Result<(), C2GError>>
+                    Some(r) => Ok(r.unwrap()),
+                    None => Ok(()),
+                },
+                Err(e) => Err(C2GError::ReadGame { source: e }),
+            }
+        };
         log::info!("Done!");
+        result
     }
 }

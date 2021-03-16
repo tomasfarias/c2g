@@ -2,8 +2,9 @@ use image::{imageops, ImageBuffer, Rgba, RgbaImage};
 use log;
 use resvg;
 use shakmaty::{self, File, Move, Pieces, Rank, Role, Square};
+use thiserror::Error;
 use tiny_skia::{self, Pixmap, PixmapPaint, Transform};
-use usvg::{fontdb, FitTo, Options, Tree};
+use usvg::{self, fontdb, FitTo, Options, Tree};
 
 use crate::utils;
 
@@ -15,6 +16,29 @@ pub struct BoardDrawer {
     light: Rgba<u8>,
 }
 
+#[derive(Error, Debug)]
+pub enum DrawerError {
+    #[error("Could not load font file")]
+    LoadFont {
+        #[from]
+        source: std::io::Error,
+    },
+    #[error("Could not load piece svg file")]
+    LoadPieceSVG {
+        #[from]
+        source: usvg::Error,
+    },
+    #[error("An image {image:?} is too big to fit in an ImageBuffer")]
+    ImageTooBig { image: String },
+    #[error("SVG {svg:?} failed to be rendered")]
+    SVGRenderError { svg: String },
+    #[error("A correct SVG for {coordinate:?} could not be produced")]
+    CoordinateSVG {
+        source: usvg::Error,
+        coordinate: char,
+    },
+}
+
 impl BoardDrawer {
     pub fn new(
         image_path: String,
@@ -22,25 +46,27 @@ impl BoardDrawer {
         size: u32,
         dark: [u8; 4],
         light: [u8; 4],
-    ) -> Self {
+    ) -> Result<Self, DrawerError> {
         let mut opt = usvg::Options::default();
 
         if let Some(p) = font_path {
             let mut fonts = fontdb::Database::new();
-            fonts.load_font_file(p);
+            fonts
+                .load_font_file(p)
+                .map_err(|source| DrawerError::LoadFont { source: source })?;
             opt.fontdb = fonts;
             opt.font_size = 16.0;
             // There should only be 1 font in DB
             opt.font_family = (*(opt.fontdb.faces())[0].family).to_owned();
         }
 
-        BoardDrawer {
+        Ok(BoardDrawer {
             image_path: image_path,
             svg_options: opt,
             size: size,
             dark: image::Rgba(dark),
             light: image::Rgba(light),
-        }
+        })
     }
 
     pub fn dark_color(&mut self) -> tiny_skia::Color {
@@ -79,7 +105,7 @@ impl BoardDrawer {
         ImageBuffer::from_pixel(self.size / 8, self.size / 8, self.light)
     }
 
-    pub fn draw_position_from_empty(&mut self, pieces: Pieces) -> RgbaImage {
+    pub fn draw_position_from_empty(&mut self, pieces: Pieces) -> Result<RgbaImage, DrawerError> {
         log::debug!("Drawing initial board");
         let mut counter = 1;
         let mut column = ImageBuffer::from_fn(self.size / 8, self.size, |_, y| {
@@ -101,21 +127,33 @@ impl BoardDrawer {
 
         for (square, piece) in pieces {
             log::debug!("Initializing {:?} in {:?}", piece, square);
-            self.draw_piece(&square, &piece.role, piece.color, false, &mut board);
+            self.draw_piece(&square, &piece.role, piece.color, false, &mut board)?;
         }
-        self.draw_ranks(2, 6, &mut board);
+        self.draw_ranks(2, 6, &mut board)?;
 
-        board
+        Ok(board)
     }
 
-    pub fn draw_ranks(&mut self, from: u32, to: u32, img: &mut RgbaImage) {
+    pub fn draw_ranks(
+        &mut self,
+        from: u32,
+        to: u32,
+        img: &mut RgbaImage,
+    ) -> Result<(), DrawerError> {
         for n in from..to {
             let square = shakmaty::Square::new(n * 8);
-            self.draw_square(&square, img);
+            self.draw_square(&square, img)?;
         }
+
+        Ok(())
     }
 
-    pub fn draw_move(&mut self, _move: &Move, color: shakmaty::Color, img: &mut RgbaImage) {
+    pub fn draw_move(
+        &mut self,
+        _move: &Move,
+        color: shakmaty::Color,
+        img: &mut RgbaImage,
+    ) -> Result<(), DrawerError> {
         log::debug!("Drawing move: {:?}", _move);
         match _move {
             Move::Normal {
@@ -125,39 +163,46 @@ impl BoardDrawer {
                 to,
                 promotion,
             } => {
-                self.draw_square(from, img);
+                self.draw_square(from, img)?;
                 let blank_to_square = if capture.is_some() { true } else { false };
 
                 if let Some(promoted) = promotion {
-                    self.draw_piece(to, promoted, color, blank_to_square, img);
+                    self.draw_piece(to, promoted, color, blank_to_square, img)?;
                 } else {
-                    self.draw_piece(to, role, color, blank_to_square, img);
+                    self.draw_piece(to, role, color, blank_to_square, img)?;
                 }
             }
             Move::EnPassant { from, to } => {
-                self.draw_square(from, img);
-                self.draw_piece(to, &Role::Pawn, color, true, img);
+                self.draw_square(from, img)?;
+                self.draw_piece(to, &Role::Pawn, color, true, img)?;
             }
             Move::Castle { king, rook } => {
                 // King and Rook initial squares, e.g. E1 and H1 respectively.
                 // Need to calculate where the pieces end up before drawing.
                 let offset = if rook.file() > king.file() { 1 } else { -1 };
 
-                self.draw_square(king, img);
-                self.draw_square(rook, img);
+                self.draw_square(king, img)?;
+                self.draw_square(rook, img)?;
 
                 let rook_square = king.offset(offset * 1).unwrap();
                 let king_square = king.offset(offset * 2).unwrap();
-                self.draw_piece(&king_square, &Role::King, color, true, img);
-                self.draw_piece(&rook_square, &Role::Rook, color, true, img);
+                self.draw_piece(&king_square, &Role::King, color, true, img)?;
+                self.draw_piece(&rook_square, &Role::Rook, color, true, img)?;
             }
             Move::Put { role, to } => {
-                self.draw_piece(to, role, color, true, img);
+                self.draw_piece(to, role, color, true, img)?;
             }
         };
+
+        Ok(())
     }
 
-    pub fn square_pixmap(&mut self, height: u32, width: u32, square: &Square) -> Pixmap {
+    pub fn square_pixmap(
+        &mut self,
+        height: u32,
+        width: u32,
+        square: &Square,
+    ) -> Result<Pixmap, DrawerError> {
         let mut pixmap = Pixmap::new(width, height).unwrap();
         match square.is_dark() {
             true => pixmap.fill(self.dark_color()),
@@ -172,7 +217,7 @@ impl BoardDrawer {
                     self.size / 32,
                     self.size / 128,
                     self.size / 32 - self.size / 128,
-                );
+                )?;
                 let paint = PixmapPaint::default();
                 let transform = Transform::default();
                 pixmap.draw_pixmap(
@@ -192,14 +237,14 @@ impl BoardDrawer {
                     self.size / 32,
                     self.size / 128,
                     self.size / 32,
-                );
+                )?;
                 let paint = PixmapPaint::default();
                 let transform = Transform::default();
                 pixmap.draw_pixmap(0, 0, rank_pixmap.as_ref(), &paint, transform, None);
             }
         }
 
-        pixmap
+        Ok(pixmap)
     }
 
     pub fn piece_image<'a>(
@@ -209,7 +254,7 @@ impl BoardDrawer {
         role: &'a Role,
         height: u32,
         width: u32,
-    ) -> RgbaImage {
+    ) -> Result<RgbaImage, DrawerError> {
         let fit_to = FitTo::Height(height);
         let file_path = format!(
             "{}/{}_{}.svg",
@@ -217,11 +262,18 @@ impl BoardDrawer {
             piece_color.char(),
             role.char()
         );
-        let rtree = Tree::from_file(file_path, &self.svg_options).unwrap();
-        let mut pixmap = self.square_pixmap(height, width, square);
-        resvg::render(&rtree, fit_to, pixmap.as_mut()).unwrap();
+        let rtree = Tree::from_file(file_path, &self.svg_options)
+            .map_err(|source| DrawerError::LoadPieceSVG { source: source })?;
+        let mut pixmap = self.square_pixmap(height, width, square)?;
+        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
+            svg: format!("{}_{}.svg", piece_color.char(), role.char()),
+        })?;
 
-        ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).unwrap()
+        ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).ok_or(
+            DrawerError::ImageTooBig {
+                image: format!("{}_{}.svg", piece_color.char(), role.char()),
+            },
+        )
     }
 
     pub fn coordinate_pixmap(
@@ -232,7 +284,7 @@ impl BoardDrawer {
         width: u32,
         x: u32,
         y: u32,
-    ) -> Pixmap {
+    ) -> Result<Pixmap, DrawerError> {
         log::debug!("Generating svg text: {}", coordinate);
         let mut pixmap = Pixmap::new(width, height).unwrap();
         let (square_color, coord_color) = match square.is_dark() {
@@ -261,24 +313,35 @@ impl BoardDrawer {
             coordinate,
         );
 
-        let rtree = Tree::from_str(&svg_string, &self.svg_options).unwrap();
+        let rtree = Tree::from_str(&svg_string, &self.svg_options).map_err(|source| {
+            DrawerError::CoordinateSVG {
+                source: source,
+                coordinate: coordinate,
+            }
+        })?;
         let fit_to = FitTo::Height(height);
 
-        resvg::render(&rtree, fit_to, pixmap.as_mut()).unwrap();
+        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
+            svg: coordinate.to_string(),
+        })?;
 
-        pixmap
+        Ok(pixmap)
     }
 
-    pub fn draw_square(&mut self, square: &Square, img: &mut RgbaImage) {
+    pub fn draw_square(&mut self, square: &Square, img: &mut RgbaImage) -> Result<(), DrawerError> {
         log::debug!("Drawing square: {}", square);
-        let pixmap = self.square_pixmap(self.size / 8, self.size / 8, square);
-        let square_img =
-            ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).unwrap();
+        let pixmap = self.square_pixmap(self.size / 8, self.size / 8, square)?;
+        let square_img = ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
+            .ok_or(DrawerError::ImageTooBig {
+                image: format!("{}x{} square", self.size / 8, self.size / 8),
+            })?;
 
         let x = self.size / 8 * u32::from(square.file());
         let y = self.size - self.size / 8 * (u32::from(square.rank()) + 1);
 
         imageops::overlay(img, &square_img, x, y);
+
+        Ok(())
     }
 
     pub fn draw_piece(
@@ -288,10 +351,10 @@ impl BoardDrawer {
         color: shakmaty::Color,
         blank_target: bool,
         img: &mut RgbaImage,
-    ) {
+    ) -> Result<(), DrawerError> {
         log::debug!("Drawing {:?} {:?} on {:?}", color, role, square);
         if blank_target {
-            self.draw_square(square, img);
+            self.draw_square(square, img)?;
         }
 
         let x = self.size / 8 * u32::from(square.file());
@@ -299,7 +362,9 @@ impl BoardDrawer {
         log::debug!("Piece coordinates: ({}, {})", x, y);
 
         let height = self.size / 8;
-        let resized_piece = self.piece_image(color, square, role, height, height);
+        let resized_piece = self.piece_image(color, square, role, height, height)?;
         imageops::replace(img, &resized_piece, x, y);
+
+        Ok(())
     }
 }
