@@ -1,4 +1,4 @@
-use c2g::Chess2Gif;
+use c2g::cli::Chess2Gif;
 
 fn main() {
     env_logger::init();
