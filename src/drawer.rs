@@ -90,6 +90,10 @@ impl BoardDrawer {
         ImageBuffer::new(self.size, self.size)
     }
 
+    pub fn square_size(&self) -> u32 {
+        self.size / 8
+    }
+
     pub fn square_image(&mut self, square: &Square) -> RgbaImage {
         match square.is_dark() {
             true => self.dark_square(),
@@ -98,18 +102,18 @@ impl BoardDrawer {
     }
 
     pub fn dark_square(&self) -> RgbaImage {
-        ImageBuffer::from_pixel(self.size / 8, self.size / 8, self.dark)
+        ImageBuffer::from_pixel(self.square_size(), self.square_size(), self.dark)
     }
 
     pub fn light_square(&self) -> RgbaImage {
-        ImageBuffer::from_pixel(self.size / 8, self.size / 8, self.light)
+        ImageBuffer::from_pixel(self.square_size(), self.square_size(), self.light)
     }
 
     pub fn draw_position_from_empty(&mut self, pieces: Pieces) -> Result<RgbaImage, DrawerError> {
         log::debug!("Drawing initial board");
         let mut counter = 1;
-        let mut column = ImageBuffer::from_fn(self.size / 8, self.size, |_, y| {
-            if y >= self.size / 8 * counter {
+        let mut column = ImageBuffer::from_fn(self.square_size(), self.size, |_, y| {
+            if y >= self.square_size() * counter {
                 counter += 1;
             }
             if counter % 2 != 0 {
@@ -121,7 +125,7 @@ impl BoardDrawer {
 
         let mut board = ImageBuffer::new(self.size, self.size);
         for n in 0..9 {
-            imageops::replace(&mut board, &column, n * self.size / 8, 0);
+            imageops::replace(&mut board, &column, n * self.square_size(), 0);
             imageops::flip_vertical_in_place(&mut column)
         }
 
@@ -141,7 +145,7 @@ impl BoardDrawer {
         img: &mut RgbaImage,
     ) -> Result<(), DrawerError> {
         for n in from..to {
-            let square = shakmaty::Square::new(n * 8);
+            let square = Square::new(n * 8);
             self.draw_square(&square, img)?;
         }
 
@@ -221,8 +225,8 @@ impl BoardDrawer {
                 let paint = PixmapPaint::default();
                 let transform = Transform::default();
                 pixmap.draw_pixmap(
-                    (self.size / 8 - self.size / 32) as i32,
-                    (self.size / 8 - self.size / 32) as i32,
+                    (self.square_size() - self.size / 32) as i32,
+                    (self.square_size() - self.size / 32) as i32,
                     file_pixmap.as_ref(),
                     &paint,
                     transform,
@@ -330,14 +334,14 @@ impl BoardDrawer {
 
     pub fn draw_square(&mut self, square: &Square, img: &mut RgbaImage) -> Result<(), DrawerError> {
         log::debug!("Drawing square: {}", square);
-        let pixmap = self.square_pixmap(self.size / 8, self.size / 8, square)?;
+        let pixmap = self.square_pixmap(self.square_size(), self.square_size(), square)?;
         let square_img = ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
             .ok_or(DrawerError::ImageTooBig {
-                image: format!("{}x{} square", self.size / 8, self.size / 8),
+                image: format!("{}x{} square", self.square_size(), self.square_size()),
             })?;
 
-        let x = self.size / 8 * u32::from(square.file());
-        let y = self.size - self.size / 8 * (u32::from(square.rank()) + 1);
+        let x = self.square_size() * u32::from(square.file());
+        let y = self.size - self.square_size() * (u32::from(square.rank()) + 1);
 
         imageops::overlay(img, &square_img, x, y);
 
@@ -357,14 +361,62 @@ impl BoardDrawer {
             self.draw_square(square, img)?;
         }
 
-        let x = self.size / 8 * u32::from(square.file());
-        let y = self.size - self.size / 8 * (u32::from(square.rank()) + 1);
+        let x = self.square_size() * u32::from(square.file());
+        let y = self.size - self.square_size() * (u32::from(square.rank()) + 1);
         log::debug!("Piece coordinates: ({}, {})", x, y);
 
-        let height = self.size / 8;
+        let height = self.square_size();
         let resized_piece = self.piece_image(color, square, role, height, height)?;
         imageops::replace(img, &resized_piece, x, y);
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_square_image() {
+        let dark: [u8; 4] = [249, 100, 100, 1];
+        let light: [u8; 4] = [255, 253, 253, 1];
+        let mut drawer = BoardDrawer::new("some/path/".to_string(), None, 80, dark, light).unwrap();
+
+        let square = Square::new(0); // A1 is dark
+        let expected = ImageBuffer::from_pixel(10, 10, image::Rgba(dark));
+        assert_eq!(expected, drawer.square_image(&square));
+
+        let square = Square::new(7); // H1 is light
+        let expected = ImageBuffer::from_pixel(10, 10, image::Rgba(light));
+        assert_eq!(expected, drawer.square_image(&square));
+    }
+
+    #[test]
+    fn test_sizes() {
+        let dark: [u8; 4] = [249, 100, 100, 1];
+        let light: [u8; 4] = [255, 253, 253, 1];
+        let drawer = BoardDrawer::new("some/path/".to_string(), None, 80, dark, light).unwrap();
+
+        assert_eq!(drawer.size(), 80);
+        assert_eq!(drawer.square_size(), 10);
+    }
+
+    #[test]
+    fn test_square_pixmap() {
+        let dark: [u8; 4] = [249, 100, 100, 1];
+        let light: [u8; 4] = [255, 253, 253, 1];
+        let mut drawer = BoardDrawer::new("some/path/".to_string(), None, 80, dark, light).unwrap();
+
+        let mut pixmap = Pixmap::new(10, 10).unwrap();
+        let square = Square::new(9); // B2 is dark
+        pixmap.fill(tiny_skia::Color::from_rgba8(249, 100, 100, 255));
+        let result = drawer.square_pixmap(10, 10, &square).unwrap();
+        assert_eq!(pixmap, result);
+
+        let square = Square::new(10); // C2 is dark
+        pixmap.fill(tiny_skia::Color::from_rgba8(255, 253, 253, 255));
+        let result = drawer.square_pixmap(10, 10, &square).unwrap();
+        assert_eq!(pixmap, result);
     }
 }
