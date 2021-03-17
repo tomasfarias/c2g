@@ -7,3 +7,20 @@ pub fn has_coordinate(s: &Square) -> bool {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_has_coordinate() {
+        let square = Square::new(0); // A1
+        assert!(has_coordinate(&square));
+
+        let square = Square::new(9); // B2
+        assert!(!has_coordinate(&square));
+
+        let square = Square::new(56); // A8
+        assert!(has_coordinate(&square));
+    }
+}
