@@ -1,0 +1,62 @@
+name: Build and release on tag creation
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    name: Build and release
+    strategy:
+      matrix:
+        target: [
+          aarch64-unknown-linux-gnu,
+          armv7-unknown-linux-gnueabihf,
+          i686-unknown-linux-gnu,
+          i686-unknown-linux-musl,
+          mips-unknown-linux-gnu,
+          mips64-unknown-linux-gnuabi64,
+          mips64el-unknown-linux-gnuabi64,
+          mipsel-unknown-linux-gnu,
+          powerpc-unknown-linux-gnu,
+          powerpc64-unknown-linux-gnu,
+          powerpc64le-unknown-linux-gnu,
+          arm-unknown-linux-gnueabi,
+          x86_64-unknown-linux-gnu,
+          x86_64-unknown-linux-musl
+        ]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Build target
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: true
+          command: build
+          args: --release --bin c2g --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czvf ../../../c2g-${{ matrix.target }}.tar.gz c2g
+          cd -
+
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: 'c2g*'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
