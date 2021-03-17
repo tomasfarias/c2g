@@ -20,7 +20,6 @@ jobs:
           mips64el-unknown-linux-gnuabi64,
           mipsel-unknown-linux-gnu,
           powerpc-unknown-linux-gnu,
-          powerpc64-unknown-linux-gnu,
           powerpc64le-unknown-linux-gnu,
           arm-unknown-linux-gnueabi,
           x86_64-unknown-linux-gnu,
