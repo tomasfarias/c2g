@@ -7,15 +7,17 @@ on:
 
 jobs:
   build:
-    name: Build and release
+    name: Build and release for ${{ matrix.job.os }}
     strategy:
       matrix:
-        target: [
-          x86_64-apple-darwin,
-          x86_64-unknown-linux-gnu,
-          x86_64-unknown-linux-musl
-        ]
-    runs-on: ubuntu-latest
+        job:
+          - { os: macos-latest,   target: x86_64-apple-darwin,         use-cross: false }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc,      use-cross: false }
+          - { os: ubuntu-latest , target: x86_64-unknown-linux-gnu,    use-cross: false }
+          - { os: ubuntu-latest,  target: x86_64-unknown-linux-musl,   use-cross: true }
+          - { os: ubuntu-latest,  target: arm-unknown-linux-gnueabihf, use-cross: true }
+          - { os: ubuntu-latest,  target: aarch64-unknown-linux-gnu,   use-cross: true }
+    runs-on: ${{ matrix.job.os }}
 
     steps:
       - name: Checkout
@@ -26,21 +28,19 @@ jobs:
         with:
           toolchain: stable
           profile: minimal
-          override: true
-          target: ${{ matrix.target }}
 
       - name: Build target
         uses: actions-rs/cargo@v1
         with:
-          use-cross: true
+          use-cross: ${{ matrix.job.use-cross }}
           command: build
-          args: --release --bin c2g --target ${{ matrix.target }}
+          args: --release --bin c2g --target ${{ matrix.job.target }}
 
       - name: Package
         shell: bash
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czvf ../../../c2g-${{ matrix.target }}.tar.gz c2g
+          cd target/${{ matrix.job.target }}/release
+          tar czvf ../../../c2g-${{ matrix.job.target }}.tar.gz c2g
           cd -
 
       - name: Release
