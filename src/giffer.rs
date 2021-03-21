@@ -19,7 +19,7 @@ pub struct PGNGiffer<'a> {
 
 #[derive(Error, Debug)]
 pub enum GifferError {
-    #[error("Failed to create GIF output file")]
+    #[error(transparent)]
     CreateOutput {
         #[from]
         source: std::io::Error,
@@ -28,7 +28,7 @@ pub enum GifferError {
     InitializeEncoder { source: gif::EncodingError },
     #[error("A GIF frame could not be encoded")]
     FrameEncoding { source: gif::EncodingError },
-    #[error("BoardDrawer failed")]
+    #[error(transparent)]
     DrawerError {
         #[from]
         source: DrawerError,
@@ -37,7 +37,7 @@ pub enum GifferError {
 
 impl<'a> PGNGiffer<'a> {
     pub fn new(
-        image_path: &str,
+        pieces_path: &str,
         font_path: &str,
         board_size: u32,
         output_path: &str,
@@ -49,14 +49,8 @@ impl<'a> PGNGiffer<'a> {
             fs::File::create(output_path).map_err(|source| GifferError::CreateOutput { source })?;
         let buffer = BufWriter::with_capacity(1000, file);
 
-        let drawer = BoardDrawer::new(
-            image_path.to_owned(),
-            Some(font_path.to_owned()),
-            board_size as u32,
-            dark,
-            light,
-        )
-        .map_err(|source| GifferError::DrawerError { source: source })?;
+        let drawer = BoardDrawer::new(pieces_path, font_path, board_size as u32, dark, light)
+            .map_err(|source| GifferError::DrawerError { source: source })?;
 
         let mut encoder = Encoder::new(buffer, drawer.size() as u16, drawer.size() as u16, &[])
             .map_err(|source| GifferError::InitializeEncoder { source })?;

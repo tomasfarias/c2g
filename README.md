@@ -22,5 +22,5 @@ The following (free) exceptions apply:
 
 | Files | Author(s) | License |
 | :-- | :-- | :-- |
-| pieces/*.svg | [Colin M.L. Burnett](https://en.wikipedia.org/wiki/User:Cburnett) | [GPLv2+](https://www.gnu.org/licenses/gpl-2.0.txt) |
-| font/roboto.ttf | [Christian Robertson](https://fonts.google.com/specimen/Roboto) | [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) |
+| pieces/cburnett/*.svg | [Colin M.L. Burnett](https://en.wikipedia.org/wiki/User:Cburnett) | [GPLv2+](https://www.gnu.org/licenses/gpl-2.0.txt) |
+| fonts/roboto.ttf | [Christian Robertson](https://fonts.google.com/specimen/Roboto) | [Apache 2.0](https://www.apache.org/licenses/LICENSE-2.0) |

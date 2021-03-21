@@ -75,15 +75,15 @@ impl<'a> Chess2Gif<'a> {
                 Arg::with_name("pieces-path")
                     .long("pieces-path")
                     .takes_value(true)
-                    .help("Path to directory containing images of chess pieces")
-                    .default_value("pieces/"),
+                    .help("Path to directory containing SVGs of chess pieces. If compiled with include-pieces (default), this argument can be used to set a different family of pieces, defaults to cburnett")
+                    .default_value("cburnett"),
             )
             .arg(
                 Arg::with_name("font-path")
                     .long("font-path")
                     .takes_value(true)
-                    .help("Path to directory containing images of chess coordinates")
-                    .default_value("font/roboto.ttf"),
+                    .help("Path to desired coordinates font. If compiled with include-fonts, this argument can be used to set a different coordinate font, defaults to roboto")
+                    .default_value("roboto.ttf"),
             );
 
         let matches = app.get_matches_from_safe(args)?;
