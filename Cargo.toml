@@ -4,6 +4,14 @@ version = "0.1.1"
 authors = ["Tomas Farias <tomas@tomasfarias.dev>"]
 edition = "2018"
 
+[features]
+default = ["include-fonts", "include-pieces"]
+# Embeds the fonts directory at compile time. Removes the need to pass a path to a local font when running the CLI.
+include-fonts = ["include_dir"]
+
+# Embeds the pieces directory at compile time. Removes the need to pass a path to a local directory containing SVG pieces when running the CLI.
+include-pieces = ["include_dir"]
+
 [dependencies]
 clap = "2.33"
 env_logger = "0.8"
@@ -16,3 +24,6 @@ shakmaty = "0.18"
 thiserror = "1.0"
 tiny-skia = "0.5.0"
 usvg = "0.14"
+
+
+include_dir = { version = "^0.6", optional = true }

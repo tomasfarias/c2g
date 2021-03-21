@@ -13,7 +13,7 @@ pub enum C2GError {
         #[from]
         source: std::io::Error,
     },
-    #[error("Failed to produce a GIF")]
+    #[error(transparent)]
     GIFRenderingError {
         #[from]
         source: GifferError,

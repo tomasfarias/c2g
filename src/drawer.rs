@@ -1,4 +1,5 @@
 use image::{imageops, ImageBuffer, Rgba, RgbaImage};
+use include_dir::{include_dir, Dir};
 use log;
 use resvg;
 use shakmaty::{self, File, Move, Pieces, Rank, Role, Square};
@@ -8,18 +9,131 @@ use usvg::{self, fontdb, FitTo, Options, Tree};
 
 use crate::utils;
 
-pub struct BoardDrawer {
-    image_path: String,
+#[cfg(feature = "include-pieces")]
+static PIECES_DIR: Dir = include_dir!("pieces/");
+
+#[cfg(feature = "include-pieces")]
+fn piece_svg_string(piece_path: &str) -> Result<String, DrawerError> {
+    let piece_file = PIECES_DIR
+        .get_file(&piece_path)
+        .ok_or(DrawerError::PieceNotFound {
+            piece: piece_path.to_owned(),
+        })?;
+    Ok(piece_file
+        .contents_utf8()
+        .expect("Failed to parse file contents")
+        .to_owned())
+}
+
+#[cfg(not(feature = "include-pieces"))]
+fn piece_svg_string(piece_path: &str) -> Result<String, DrawerError> {
+    let mut f = fs::File::open(&piece_path).map_err(|_| DrawerError::PieceNotFound {
+        piece: piece_path.to_owned(),
+    })?;
+    let mut piece_str = String::new();
+    f.read_to_string(&mut piece_str)
+        .map_err(|source| DrawerError::LoadFile { source: source })?;
+
+    Ok(piece_str)
+}
+
+#[cfg(feature = "include-fonts")]
+static FONTS_DIR: Dir = include_dir!("fonts/");
+
+#[cfg(feature = "include-fonts")]
+fn font_data(font: &str) -> Result<Vec<u8>, DrawerError> {
+    let font_file = FONTS_DIR.get_file(font).ok_or(DrawerError::FontNotFound {
+        font: font.to_owned(),
+    })?;
+    Ok(font_file.contents.to_vec())
+}
+
+#[cfg(not(feature = "include-fonts"))]
+fn font_data(font: &str) -> Result<Vec<u8>, DrawerError> {
+    let mut f = fs::File::open(font).map_err(|_| DrawerError::FontNotFound {
+        font: font.to_owned(),
+    })?;
+    let mut buffer: Vec<u8> = Vec::new();
+    f.read_to_end(&mut buffer)
+        .map_err(|source| DrawerError::LoadFile { source: source })?;
+
+    Ok(buffer)
+}
+
+pub struct SVGForest {
+    pieces_dir: String,
     svg_options: Options,
-    size: u32,
-    dark: Rgba<u8>,
-    light: Rgba<u8>,
+}
+
+impl SVGForest {
+    pub fn new(pieces_dir: &str, font: &str) -> Result<Self, DrawerError> {
+        let mut opt = Options::default();
+
+        // Load font for coordinates
+        let mut fonts = fontdb::Database::new();
+        let font_data = font_data(font)?;
+        fonts.load_font_data(font_data);
+        opt.fontdb = fonts;
+        opt.font_size = 16.0;
+        // There should only be 1 font in DB
+        opt.font_family = (*(opt.fontdb.faces())[0].family).to_owned();
+
+        Ok(SVGForest {
+            pieces_dir: pieces_dir.to_owned(),
+            svg_options: opt,
+        })
+    }
+
+    pub fn piece_tree(&self, role: &Role, color: &shakmaty::Color) -> Result<Tree, DrawerError> {
+        let piece_path = format!("{}/{}_{}.svg", self.pieces_dir, color.char(), role.char());
+        let svg_string = piece_svg_string(&piece_path)?;
+
+        Tree::from_str(&svg_string, &self.svg_options)
+            .map_err(|source| DrawerError::LoadPieceSVG { source: source })
+    }
+
+    pub fn coordinate_tree(
+        &self,
+        c: char,
+        color: Rgba<u8>,
+        background: Rgba<u8>,
+        height: u32,
+        width: u32,
+        x: u32,
+        y: u32,
+    ) -> Result<Tree, DrawerError> {
+        let svg_string = format!(
+            "<svg xmlns:svg=\"http://www.w3.org/2000/svg\" xmlns=\"http://www.w3.org/2000/svg\" version=\"1.0\" height=\"{}\" width=\"{}\" style=\"background-color:rgb({},{},{})\"> <text x=\"{}\" y=\"{}\" fill=\"rgb({}, {}, {})\" font-weight=\"600\">{}</text></svg>",
+            height,
+            width,
+            background[0],
+            background[1],
+            background[2],
+            x,
+            y,
+            color[0],
+            color[1],
+            color[2],
+            c,
+        );
+
+        Tree::from_str(&svg_string, &self.svg_options).map_err(|source| {
+            DrawerError::CoordinateSVG {
+                source: source,
+                coordinate: c,
+            }
+        })
+    }
 }
 
 #[derive(Error, Debug)]
 pub enum DrawerError {
-    #[error("Could not load font file")]
-    LoadFont {
+    #[error("Piece {piece:?} not found in pieces directory")]
+    PieceNotFound { piece: String },
+    #[error("Font {font:?} not found in fonts directory")]
+    FontNotFound { font: String },
+    #[error("Could not load file")]
+    LoadFile {
         #[from]
         source: std::io::Error,
     },
@@ -39,30 +153,24 @@ pub enum DrawerError {
     },
 }
 
+pub struct BoardDrawer {
+    svgs: SVGForest,
+    size: u32,
+    dark: Rgba<u8>,
+    light: Rgba<u8>,
+}
+
 impl BoardDrawer {
     pub fn new(
-        image_path: String,
-        font_path: Option<String>,
+        piece_path: &str,
+        font: &str,
         size: u32,
         dark: [u8; 4],
         light: [u8; 4],
     ) -> Result<Self, DrawerError> {
-        let mut opt = usvg::Options::default();
-
-        if let Some(p) = font_path {
-            let mut fonts = fontdb::Database::new();
-            fonts
-                .load_font_file(p)
-                .map_err(|source| DrawerError::LoadFont { source: source })?;
-            opt.fontdb = fonts;
-            opt.font_size = 16.0;
-            // There should only be 1 font in DB
-            opt.font_family = (*(opt.fontdb.faces())[0].family).to_owned();
-        }
-
+        let svgs = SVGForest::new(piece_path, font)?;
         Ok(BoardDrawer {
-            image_path: image_path,
-            svg_options: opt,
+            svgs: svgs,
             size: size,
             dark: image::Rgba(dark),
             light: image::Rgba(light),
@@ -201,137 +309,6 @@ impl BoardDrawer {
         Ok(())
     }
 
-    pub fn square_pixmap(
-        &mut self,
-        height: u32,
-        width: u32,
-        square: &Square,
-    ) -> Result<Pixmap, DrawerError> {
-        let mut pixmap = Pixmap::new(width, height).unwrap();
-        match square.is_dark() {
-            true => pixmap.fill(self.dark_color()),
-            false => pixmap.fill(self.light_color()),
-        };
-        if utils::has_coordinate(square) {
-            if square.rank() == Rank::First {
-                let file_pixmap = self.coordinate_pixmap(
-                    square.file().char(),
-                    square,
-                    self.size / 32,
-                    self.size / 32,
-                    self.size / 128,
-                    self.size / 32 - self.size / 128,
-                )?;
-                let paint = PixmapPaint::default();
-                let transform = Transform::default();
-                pixmap.draw_pixmap(
-                    (self.square_size() - self.size / 32) as i32,
-                    (self.square_size() - self.size / 32) as i32,
-                    file_pixmap.as_ref(),
-                    &paint,
-                    transform,
-                    None,
-                );
-            }
-            if square.file() == File::A {
-                let rank_pixmap = self.coordinate_pixmap(
-                    square.rank().char(),
-                    square,
-                    self.size / 32,
-                    self.size / 32,
-                    self.size / 128,
-                    self.size / 32,
-                )?;
-                let paint = PixmapPaint::default();
-                let transform = Transform::default();
-                pixmap.draw_pixmap(0, 0, rank_pixmap.as_ref(), &paint, transform, None);
-            }
-        }
-
-        Ok(pixmap)
-    }
-
-    pub fn piece_image<'a>(
-        &'a mut self,
-        piece_color: shakmaty::Color,
-        square: &'a Square,
-        role: &'a Role,
-        height: u32,
-        width: u32,
-    ) -> Result<RgbaImage, DrawerError> {
-        let fit_to = FitTo::Height(height);
-        let file_path = format!(
-            "{}/{}_{}.svg",
-            self.image_path,
-            piece_color.char(),
-            role.char()
-        );
-        let rtree = Tree::from_file(file_path, &self.svg_options)
-            .map_err(|source| DrawerError::LoadPieceSVG { source: source })?;
-        let mut pixmap = self.square_pixmap(height, width, square)?;
-        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
-            svg: format!("{}_{}.svg", piece_color.char(), role.char()),
-        })?;
-
-        ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).ok_or(
-            DrawerError::ImageTooBig {
-                image: format!("{}_{}.svg", piece_color.char(), role.char()),
-            },
-        )
-    }
-
-    pub fn coordinate_pixmap(
-        &mut self,
-        coordinate: char,
-        square: &Square,
-        height: u32,
-        width: u32,
-        x: u32,
-        y: u32,
-    ) -> Result<Pixmap, DrawerError> {
-        log::debug!("Generating svg text: {}", coordinate);
-        let mut pixmap = Pixmap::new(width, height).unwrap();
-        let (square_color, coord_color) = match square.is_dark() {
-            true => {
-                pixmap.fill(self.dark_color());
-                (self.dark, self.light)
-            }
-            false => {
-                pixmap.fill(self.light_color());
-                (self.light, self.dark)
-            }
-        };
-
-        let svg_string = format!(
-            "<svg xmlns:svg=\"http://www.w3.org/2000/svg\" xmlns=\"http://www.w3.org/2000/svg\" version=\"1.0\" height=\"{}\" width=\"{}\" style=\"background-color:rgb({},{},{})\"> <text x=\"{}\" y=\"{}\" fill=\"rgb({}, {}, {})\" font-weight=\"600\">{}</text></svg>",
-            height,
-            width,
-            square_color[0],
-            square_color[1],
-            square_color[2],
-            x,
-            y,
-            coord_color[0],
-            coord_color[1],
-            coord_color[2],
-            coordinate,
-        );
-
-        let rtree = Tree::from_str(&svg_string, &self.svg_options).map_err(|source| {
-            DrawerError::CoordinateSVG {
-                source: source,
-                coordinate: coordinate,
-            }
-        })?;
-        let fit_to = FitTo::Height(height);
-
-        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
-            svg: coordinate.to_string(),
-        })?;
-
-        Ok(pixmap)
-    }
-
     pub fn draw_square(&mut self, square: &Square, img: &mut RgbaImage) -> Result<(), DrawerError> {
         log::debug!("Drawing square: {}", square);
         let pixmap = self.square_pixmap(self.square_size(), self.square_size(), square)?;
@@ -370,6 +347,118 @@ impl BoardDrawer {
         imageops::replace(img, &resized_piece, x, y);
 
         Ok(())
+    }
+
+    pub fn piece_image<'a>(
+        &'a mut self,
+        piece_color: shakmaty::Color,
+        square: &'a Square,
+        role: &'a Role,
+        height: u32,
+        width: u32,
+    ) -> Result<RgbaImage, DrawerError> {
+        let fit_to = FitTo::Height(height);
+        let rtree = self.svgs.piece_tree(role, &piece_color)?;
+        let mut pixmap = self.square_pixmap(height, width, square)?;
+        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
+            svg: format!("{}_{}.svg", piece_color.char(), role.char()),
+        })?;
+
+        ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).ok_or(
+            DrawerError::ImageTooBig {
+                image: format!("{}_{}.svg", piece_color.char(), role.char()),
+            },
+        )
+    }
+
+    pub fn coordinate_pixmap(
+        &mut self,
+        coordinate: char,
+        square: &Square,
+        height: u32,
+        width: u32,
+        x: u32,
+        y: u32,
+    ) -> Result<Pixmap, DrawerError> {
+        log::debug!("Generating svg text: {}", coordinate);
+        let mut pixmap = Pixmap::new(width, height).unwrap();
+        let (square_color, coord_color) = match square.is_dark() {
+            true => {
+                pixmap.fill(self.dark_color());
+                (self.dark, self.light)
+            }
+            false => {
+                pixmap.fill(self.light_color());
+                (self.light, self.dark)
+            }
+        };
+        let rtree = self.svgs.coordinate_tree(
+            coordinate,
+            coord_color,
+            square_color,
+            height,
+            width,
+            x,
+            y,
+        )?;
+
+        let fit_to = FitTo::Height(height);
+        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
+            svg: coordinate.to_string(),
+        })?;
+
+        Ok(pixmap)
+    }
+
+    pub fn square_pixmap(
+        &mut self,
+        height: u32,
+        width: u32,
+        square: &Square,
+    ) -> Result<Pixmap, DrawerError> {
+        let mut pixmap = Pixmap::new(width, height).unwrap();
+        match square.is_dark() {
+            true => pixmap.fill(self.dark_color()),
+            false => pixmap.fill(self.light_color()),
+        };
+        if utils::has_coordinate(square) {
+            if square.rank() == Rank::First {
+                let file_pixmap = self.coordinate_pixmap(
+                    square.file().char(),
+                    square,
+                    self.size / 32,
+                    self.size / 32,
+                    self.size / 128,
+                    self.size / 32 - self.size / 128,
+                )?;
+                let paint = PixmapPaint::default();
+                let transform = Transform::default();
+                pixmap.draw_pixmap(
+                    (self.square_size() - self.size / 32) as i32,
+                    (self.square_size() - self.size / 32) as i32,
+                    file_pixmap.as_ref(),
+                    &paint,
+                    transform,
+                    None,
+                );
+            }
+
+            if square.file() == File::A {
+                let rank_pixmap = self.coordinate_pixmap(
+                    square.rank().char(),
+                    square,
+                    self.size / 32,
+                    self.size / 32,
+                    self.size / 128,
+                    self.size / 32,
+                )?;
+                let paint = PixmapPaint::default();
+                let transform = Transform::default();
+                pixmap.draw_pixmap(0, 0, rank_pixmap.as_ref(), &paint, transform, None);
+            }
+        }
+
+        Ok(pixmap)
     }
 }
 

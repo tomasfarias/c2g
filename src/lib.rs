@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate clap;
+extern crate include_dir;
 
 pub mod cli;
 pub mod drawer;
