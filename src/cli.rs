@@ -42,6 +42,12 @@ impl<'a> Chess2Gif<'a> {
                     .help("Write GIF to file"),
             )
             .arg(
+                Arg::with_name("flip")
+                    .long("flip")
+                    .takes_value(false)
+                    .help("By default, white appears at the bottom, use this flag to flip the board"),
+            )
+            .arg(
                 Arg::with_name("size")
                     .short("s")
                     .long("size")
@@ -117,9 +123,11 @@ impl<'a> Chess2Gif<'a> {
             .try_into()
             .expect("Invalid light color");
 
+        let flip = matches.is_present("flip");
+
         Ok(Chess2Gif {
             pgn: pgn,
-            giffer: PGNGiffer::new(pieces_path, font_path, size, output, 100, dark, light)?,
+            giffer: PGNGiffer::new(pieces_path, font_path, flip, size, output, 100, dark, light)?,
         })
     }
 

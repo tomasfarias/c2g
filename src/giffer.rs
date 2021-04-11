@@ -39,6 +39,7 @@ impl<'a> PGNGiffer<'a> {
     pub fn new(
         pieces_path: &str,
         font_path: &str,
+        flip: bool,
         board_size: u32,
         output_path: &str,
         ms_delay: u16,
@@ -49,7 +50,7 @@ impl<'a> PGNGiffer<'a> {
             fs::File::create(output_path).map_err(|source| GifferError::CreateOutput { source })?;
         let buffer = BufWriter::with_capacity(1000, file);
 
-        let drawer = BoardDrawer::new(pieces_path, font_path, board_size as u32, dark, light)
+        let drawer = BoardDrawer::new(pieces_path, flip, font_path, board_size as u32, dark, light)
             .map_err(|source| GifferError::DrawerError { source: source })?;
 
         let mut encoder = Encoder::new(buffer, drawer.size() as u16, drawer.size() as u16, &[])
