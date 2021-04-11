@@ -156,6 +156,7 @@ pub enum DrawerError {
 pub struct BoardDrawer {
     svgs: SVGForest,
     size: u32,
+    flip: bool,
     dark: Rgba<u8>,
     light: Rgba<u8>,
 }
@@ -163,6 +164,7 @@ pub struct BoardDrawer {
 impl BoardDrawer {
     pub fn new(
         piece_path: &str,
+        flip: bool,
         font: &str,
         size: u32,
         dark: [u8; 4],
@@ -172,6 +174,7 @@ impl BoardDrawer {
         Ok(BoardDrawer {
             svgs: svgs,
             size: size,
+            flip: flip,
             dark: image::Rgba(dark),
             light: image::Rgba(light),
         })
@@ -241,7 +244,13 @@ impl BoardDrawer {
             log::debug!("Initializing {:?} in {:?}", piece, square);
             self.draw_piece(&square, &piece.role, piece.color, false, &mut board)?;
         }
+
         self.draw_ranks(2, 6, &mut board)?;
+
+        if self.flip == true {
+            imageops::flip_horizontal_in_place(&mut board);
+            imageops::flip_vertical_in_place(&mut board);
+        }
 
         Ok(board)
     }
@@ -253,7 +262,7 @@ impl BoardDrawer {
         img: &mut RgbaImage,
     ) -> Result<(), DrawerError> {
         for n in from..to {
-            let square = Square::new(n * 8);
+            let square = Square::new((n * 8) + (self.flip as u32 * 7));
             self.draw_square(&square, img)?;
         }
 
@@ -306,19 +315,29 @@ impl BoardDrawer {
             }
         };
 
+        if self.flip == true {
+            imageops::flip_horizontal_in_place(img);
+            imageops::flip_vertical_in_place(img);
+        }
+
         Ok(())
     }
 
     pub fn draw_square(&mut self, square: &Square, img: &mut RgbaImage) -> Result<(), DrawerError> {
         log::debug!("Drawing square: {}", square);
         let pixmap = self.square_pixmap(self.square_size(), self.square_size(), square)?;
-        let square_img = ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
+        let mut square_img = ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
             .ok_or(DrawerError::ImageTooBig {
                 image: format!("{}x{} square", self.square_size(), self.square_size()),
             })?;
 
         let x = self.square_size() * u32::from(square.file());
         let y = self.size - self.square_size() * (u32::from(square.rank()) + 1);
+
+        if self.flip == true {
+            imageops::flip_vertical_in_place(&mut square_img);
+            imageops::flip_horizontal_in_place(&mut square_img);
+        }
 
         imageops::overlay(img, &square_img, x, y);
 
@@ -343,7 +362,13 @@ impl BoardDrawer {
         log::debug!("Piece coordinates: ({}, {})", x, y);
 
         let height = self.square_size();
-        let resized_piece = self.piece_image(color, square, role, height, height)?;
+        let mut resized_piece = self.piece_image(color, square, role, height, height)?;
+
+        if self.flip == true {
+            imageops::flip_vertical_in_place(&mut resized_piece);
+            imageops::flip_horizontal_in_place(&mut resized_piece);
+        }
+
         imageops::replace(img, &resized_piece, x, y);
 
         Ok(())
@@ -421,8 +446,10 @@ impl BoardDrawer {
             true => pixmap.fill(self.dark_color()),
             false => pixmap.fill(self.light_color()),
         };
-        if utils::has_coordinate(square) {
-            if square.rank() == Rank::First {
+        if utils::has_coordinate(square, self.flip) {
+            if (square.rank() == Rank::First && self.flip == false)
+                || (square.rank() == Rank::Eighth && self.flip == true)
+            {
                 let file_pixmap = self.coordinate_pixmap(
                     square.file().char(),
                     square,
@@ -443,7 +470,9 @@ impl BoardDrawer {
                 );
             }
 
-            if square.file() == File::A {
+            if (square.file() == File::A && self.flip == false)
+                || (square.file() == File::H && self.flip == true)
+            {
                 let rank_pixmap = self.coordinate_pixmap(
                     square.rank().char(),
                     square,
@@ -470,7 +499,8 @@ mod tests {
     fn test_square_image() {
         let dark: [u8; 4] = [249, 100, 100, 1];
         let light: [u8; 4] = [255, 253, 253, 1];
-        let mut drawer = BoardDrawer::new("some/path/".to_string(), None, 80, dark, light).unwrap();
+        let mut drawer =
+            BoardDrawer::new("some/path/", false, "roboto.ttf", 80, dark, light).unwrap();
 
         let square = Square::new(0); // A1 is dark
         let expected = ImageBuffer::from_pixel(10, 10, image::Rgba(dark));
@@ -485,7 +515,7 @@ mod tests {
     fn test_sizes() {
         let dark: [u8; 4] = [249, 100, 100, 1];
         let light: [u8; 4] = [255, 253, 253, 1];
-        let drawer = BoardDrawer::new("some/path/".to_string(), None, 80, dark, light).unwrap();
+        let drawer = BoardDrawer::new("some/path/", false, "roboto.ttf", 80, dark, light).unwrap();
 
         assert_eq!(drawer.size(), 80);
         assert_eq!(drawer.square_size(), 10);
@@ -495,7 +525,8 @@ mod tests {
     fn test_square_pixmap() {
         let dark: [u8; 4] = [249, 100, 100, 1];
         let light: [u8; 4] = [255, 253, 253, 1];
-        let mut drawer = BoardDrawer::new("some/path/".to_string(), None, 80, dark, light).unwrap();
+        let mut drawer =
+            BoardDrawer::new("some/path/", false, "roboto.ttf", 80, dark, light).unwrap();
 
         let mut pixmap = Pixmap::new(10, 10).unwrap();
         let square = Square::new(9); // B2 is dark
