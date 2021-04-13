@@ -295,6 +295,12 @@ impl BoardDrawer {
             }
             Move::EnPassant { from, to } => {
                 self.draw_square(from, img)?;
+                // Need to delete the pawn that was taken
+                // This pawn is in the same Rank as from
+                // And the same File as to
+                let taken_pawn = Square::from_coords(to.file(), from.rank());
+                self.draw_square(&taken_pawn, img)?;
+
                 self.draw_piece(to, &Role::Pawn, color, true, img)?;
             }
             Move::Castle { king, rook } => {
