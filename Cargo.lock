@@ -100,7 +100,7 @@ checksum = "ae44d1a3d5a19df61dd0c8beb138458ac2a53a7ac09eba97d55592540004306b"
 
 [[package]]
 name = "c2g"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "clap",
  "env_logger",
@@ -109,6 +109,7 @@ dependencies = [
  "include_dir",
  "log",
  "pgn-reader",
+ "regex",
  "resvg",
  "shakmaty",
  "thiserror",
@@ -528,12 +529,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "once_cell"
-version = "1.7.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "10acf907b94fc1b1a152d08ef97e7759650268cf986bf127f387e602b02c7e5a"
-
-[[package]]
 name = "pgn-reader"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -620,14 +615,13 @@ checksum = "be9e29cb19c8fe84169fcb07f8f11e66bc9e6e0280efd4715c54818296f8a4a8"
 
 [[package]]
 name = "regex"
-version = "1.4.3"
+version = "1.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d9251239e129e16308e70d853559389de218ac275b515068abc96829d05b948a"
+checksum = "957056ecddbeba1b26965114e191d2e8589ce74db242b6ea25fc4062427a5c19"
 dependencies = [
  "aho-corasick",
  "memchr",
  "regex-syntax",
- "thread_local",
 ]
 
 [[package]]
@@ -835,15 +829,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "thread_local"
-version = "1.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8018d24e04c95ac8790716a5987d0fec4f8b27249ffa0f7d33f1369bdfb88cbd"
-dependencies = [
- "once_cell",
 ]
 
 [[package]]
