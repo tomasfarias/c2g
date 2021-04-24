@@ -6,14 +6,14 @@ use clap::{App, Arg};
 use pgn_reader::BufferedReader;
 
 use crate::error::C2GError;
-use crate::giffer::PGNGiffer;
+use crate::giffer::{Delay, PGNGiffer};
 
-pub struct Chess2Gif<'a> {
+pub struct Chess2Gif {
     pgn: Option<String>,
-    giffer: PGNGiffer<'a>,
+    giffer: PGNGiffer,
 }
 
-impl<'a> Chess2Gif<'a> {
+impl Chess2Gif {
     pub fn new() -> Self {
         Self::new_from(std::env::args_os().into_iter()).unwrap_or_else(|e| e.exit())
     }
@@ -24,7 +24,7 @@ impl<'a> Chess2Gif<'a> {
         T: Into<OsString> + Clone,
     {
         let app = App::new("Chess to GIF")
-            .version("0.1.0")
+            .version("0.4.0")
             .author("Tomas Farias <tomas@tomasfarias.dev>")
             .about("Turns a PGN chess game into a GIF")
             .arg(
@@ -54,6 +54,33 @@ impl<'a> Chess2Gif<'a> {
                     .takes_value(true)
                     .default_value("640")
                     .help("The size of one side of the board in pixels"),
+            )
+            .arg(
+                Arg::with_name("delay")
+                    .long("delay")
+                    .takes_value(true)
+                    .default_value("1000")
+                    .help("Delay between GIF frames in ms. Use 'real' to use the time given by %clk comments if available in the PGN"),
+            )
+            .arg(
+                Arg::with_name("first-frame-delay")
+                    .long("first-frame-delay")
+                    .takes_value(true)
+                    .default_value("1000")
+                    .help("Delay for the first frame in ms, since clocks start with first move"),
+            )
+            .arg(
+                Arg::with_name("last-frame-delay")
+                    .long("last-frame-delay")
+                    .takes_value(true)
+                    .default_value("5000")
+                    .help("Delay for the last frame in ms, before the GIF loops back around"),
+            )
+            .arg(
+                Arg::with_name("no-player-bars")
+                    .long("no-player-bars")
+                    .takes_value(false)
+                    .help("Disable player bars at the top and bottom of the GIF"),
             )
             .arg(
                 Arg::with_name("dark")
@@ -125,9 +152,36 @@ impl<'a> Chess2Gif<'a> {
 
         let flip = matches.is_present("flip");
 
+        let delay = match matches.value_of("delay") {
+            Some("real") => Delay::Real,
+            Some(s) => Delay::Duration(s.parse::<u16>().expect("Invalid delay value")),
+            None => panic!("Delay must be defined as it has a default value"),
+        };
+
+        let last_frame_delay = match matches.value_of("last-frame-delay") {
+            Some(s) => s.parse::<u16>().expect("Invalid last frame delay value"),
+            None => panic!("Last frame delay must be defined as it has a default value"),
+        };
+
+        let first_frame_delay = match matches.value_of("first-frame-delay") {
+            Some(s) => s.parse::<u16>().expect("Invalid last frame delay value"),
+            None => panic!("Last frame delay must be defined as it has a default value"),
+        };
+
         Ok(Chess2Gif {
             pgn: pgn,
-            giffer: PGNGiffer::new(pieces_path, font_path, flip, size, output, 100, dark, light)?,
+            giffer: PGNGiffer::new(
+                pieces_path,
+                font_path,
+                flip,
+                size,
+                output,
+                delay,
+                first_frame_delay,
+                last_frame_delay,
+                dark,
+                light,
+            )?,
         })
     }
 
