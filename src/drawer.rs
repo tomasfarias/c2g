@@ -92,9 +92,9 @@ impl SVGForest {
             .map_err(|source| DrawerError::LoadPieceSVG { source: source })
     }
 
-    pub fn coordinate_tree(
+    pub fn str_svg_tree(
         &self,
-        c: char,
+        s: &str,
         color: Rgba<u8>,
         background: Rgba<u8>,
         height: u32,
@@ -114,13 +114,13 @@ impl SVGForest {
             color[0],
             color[1],
             color[2],
-            c,
+            s,
         );
 
         Tree::from_str(&svg_string, &self.svg_options).map_err(|source| {
-            DrawerError::CoordinateSVG {
+            DrawerError::SVGTreeFromStrError {
                 source: source,
-                coordinate: c,
+                s: s.to_owned(),
             }
         })
     }
@@ -146,11 +146,8 @@ pub enum DrawerError {
     ImageTooBig { image: String },
     #[error("SVG {svg:?} failed to be rendered")]
     SVGRenderError { svg: String },
-    #[error("A correct SVG for {coordinate:?} could not be produced")]
-    CoordinateSVG {
-        source: usvg::Error,
-        coordinate: char,
-    },
+    #[error("A correct SVG for {s:?} could not be produced")]
+    SVGTreeFromStrError { source: usvg::Error, s: String },
 }
 
 pub struct BoardDrawer {
@@ -423,8 +420,8 @@ impl BoardDrawer {
                 (self.light, self.dark)
             }
         };
-        let rtree = self.svgs.coordinate_tree(
-            coordinate,
+        let rtree = self.svgs.str_svg_tree(
+            &coordinate.to_string(),
             coord_color,
             square_color,
             height,
@@ -494,6 +491,170 @@ impl BoardDrawer {
         }
 
         Ok(pixmap)
+    }
+
+    pub fn str_pixmap(
+        &mut self,
+        height: u32,
+        width: u32,
+        x: u32,
+        y: u32,
+        s: &str,
+        str_color: Rgba<u8>,
+        background_color: Rgba<u8>,
+    ) -> Result<Pixmap, DrawerError> {
+        let mut pixmap = Pixmap::new(width, height).unwrap();
+
+        let rtree = self.svgs.str_svg_tree(
+            &s.to_string(),
+            str_color,
+            background_color,
+            height,
+            width,
+            x,
+            y,
+        )?;
+
+        let fit_to = FitTo::Height(height);
+        resvg::render(&rtree, fit_to, pixmap.as_mut())
+            .ok_or(DrawerError::SVGRenderError { svg: s.to_string() })?;
+
+        Ok(pixmap)
+    }
+
+    pub fn draw_player_bar(
+        &mut self,
+        player: &str,
+        player_color: shakmaty::Color,
+        bottom: bool,
+        img: &mut RgbaImage,
+    ) -> Result<(), DrawerError> {
+        let mut pixmap = Pixmap::new(self.size, self.square_size()).unwrap();
+        let (color, background_color) = match player_color {
+            shakmaty::Color::White => {
+                pixmap.fill(self.light_color());
+                (self.dark, self.light)
+            }
+            shakmaty::Color::Black => {
+                pixmap.fill(self.dark_color());
+                (self.light, self.dark)
+            }
+        };
+
+        let player_pixmap = self.str_pixmap(
+            self.square_size(),
+            self.size,
+            0,
+            self.square_size() * 3 / 5,
+            player,
+            color,
+            background_color,
+        )?;
+
+        let paint = PixmapPaint::default();
+        let transform = Transform::default();
+        pixmap.draw_pixmap(0, 0, player_pixmap.as_ref(), &paint, transform, None);
+
+        let player_image = ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
+            .ok_or(DrawerError::ImageTooBig {
+                image: format!("{}.svg", player),
+            })?;
+
+        let y = if bottom == true {
+            self.size + self.square_size()
+        } else {
+            0
+        };
+
+        log::debug!("Bottom: {:?}, y: {}", bottom, y);
+        imageops::overlay(img, &player_image, 0, y);
+
+        Ok(())
+    }
+
+    pub fn draw_player_clock(
+        &mut self,
+        clock: &str,
+        player_color: shakmaty::Color,
+        bottom: bool,
+        img: &mut RgbaImage,
+    ) -> Result<(), DrawerError> {
+        let mut pixmap = Pixmap::new(self.square_size() * 2, self.square_size() * 3 / 4).unwrap();
+        let (color, background_color) = match player_color {
+            shakmaty::Color::White => {
+                pixmap.fill(self.dark_color());
+                (self.light, self.dark)
+            }
+            shakmaty::Color::Black => {
+                pixmap.fill(self.light_color());
+                (self.dark, self.light)
+            }
+        };
+
+        let player_pixmap = self.str_pixmap(
+            self.square_size() * 3 / 4,
+            self.square_size() * 2,
+            0,
+            self.square_size() * 3 / 5,
+            clock,
+            color,
+            background_color,
+        )?;
+
+        let paint = PixmapPaint::default();
+        let transform = Transform::default();
+        pixmap.draw_pixmap(0, 0, player_pixmap.as_ref(), &paint, transform, None);
+
+        let player_image = ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
+            .ok_or(DrawerError::ImageTooBig {
+                image: format!("{}.svg", clock),
+            })?;
+
+        let y = if bottom == true {
+            self.size + self.square_size()
+        } else {
+            0
+        };
+
+        log::debug!("Bottom: {:?}, y: {}", bottom, y);
+        imageops::overlay(
+            img,
+            &player_image,
+            self.size - self.square_size() * 2,
+            y + self.square_size() / 8,
+        );
+
+        Ok(())
+    }
+
+    pub fn add_player_bar_space(&self, img: RgbaImage) -> RgbaImage {
+        let mut new_img = RgbaImage::new(self.size, self.size + self.square_size() * 2);
+        imageops::replace(&mut new_img, &img, 0, self.square_size());
+        new_img
+    }
+
+    pub fn draw_player_clocks(
+        &mut self,
+        white_clock: &str,
+        black_clock: &str,
+        img: &mut RgbaImage,
+    ) -> Result<(), DrawerError> {
+        self.draw_player_clock(white_clock, shakmaty::Color::White, !self.flip, img)?;
+        self.draw_player_clock(black_clock, shakmaty::Color::Black, self.flip, img)?;
+
+        Ok(())
+    }
+
+    pub fn draw_player_bars(
+        &mut self,
+        white_player: &str,
+        black_player: &str,
+        img: &mut RgbaImage,
+    ) -> Result<(), DrawerError> {
+        self.draw_player_bar(white_player, shakmaty::Color::White, !self.flip, img)?;
+        self.draw_player_bar(black_player, shakmaty::Color::Black, self.flip, img)?;
+
+        Ok(())
     }
 }
 
