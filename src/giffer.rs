@@ -1,3 +1,4 @@
+use std::fmt;
 use std::fs;
 use std::io::BufWriter;
 use std::ops::Sub;
@@ -17,12 +18,33 @@ use crate::drawer::{BoardDrawer, DrawerError};
 #[derive(Clone, Debug)]
 pub struct Player {
     name: Option<String>,
+    title: Option<String>,
+    elo: Option<u32>,
 }
 
-impl Player {
-    fn new(name: &str) -> Self {
+impl Default for Player {
+    fn default() -> Self {
         Player {
-            name: Some(name.to_string()),
+            name: None,
+            title: None,
+            elo: None,
+        }
+    }
+}
+
+impl fmt::Display for Player {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let player_string = match &self.title {
+            Some(s) => format!(
+                "{} {}",
+                s,
+                self.name.as_ref().unwrap_or(&"Anonymous".to_string())
+            ),
+            None => format!("{}", self.name.as_ref().unwrap_or(&"Anonymous".to_string())),
+        };
+        match &self.elo {
+            Some(n) => write!(f, "{} ({})", player_string, n),
+            None => write!(f, "{}", player_string),
         }
     }
 }
@@ -40,6 +62,90 @@ impl Default for Players {
             white: None,
             black: None,
         }
+    }
+}
+
+impl Players {
+    /// Convenience method to check if player headers were found
+    pub fn exist(&self) -> bool {
+        log::debug!("White: {:?}, Black: {:?}", self.white, self.black);
+        self.white.is_some() && self.black.is_some()
+    }
+
+    pub fn update_player_name(&mut self, color: shakmaty::Color, name: &str) {
+        match color {
+            shakmaty::Color::White => {
+                match self.white.as_mut() {
+                    Some(p) => (*p).name = Some(name.to_string()),
+                    None => {}
+                };
+            }
+            shakmaty::Color::Black => {
+                match self.black.as_mut() {
+                    Some(p) => (*p).name = Some(name.to_string()),
+                    None => {}
+                };
+            }
+        };
+    }
+
+    pub fn update_player_title(&mut self, color: shakmaty::Color, title: &str) {
+        match color {
+            shakmaty::Color::White => {
+                match self.white.as_mut() {
+                    Some(p) => (*p).title = Some(title.to_string()),
+                    None => {}
+                };
+            }
+            shakmaty::Color::Black => {
+                match self.black.as_mut() {
+                    Some(p) => (*p).title = Some(title.to_string()),
+                    None => {}
+                };
+            }
+        };
+    }
+
+    pub fn update_player_elo(&mut self, color: shakmaty::Color, elo: u32) {
+        match color {
+            shakmaty::Color::White => {
+                match self.white.as_mut() {
+                    Some(p) => (*p).elo = Some(elo),
+                    None => {}
+                };
+            }
+            shakmaty::Color::Black => {
+                match self.black.as_mut() {
+                    Some(p) => (*p).elo = Some(elo),
+                    None => {}
+                };
+            }
+        };
+    }
+
+    pub fn create_player(
+        &mut self,
+        color: shakmaty::Color,
+        name: Option<String>,
+        title: Option<String>,
+        elo: Option<u32>,
+    ) {
+        match color {
+            shakmaty::Color::White => {
+                self.white = Some(Player {
+                    name: name,
+                    title: title,
+                    elo: elo,
+                })
+            }
+            shakmaty::Color::Black => {
+                self.black = Some(Player {
+                    name: name,
+                    title: title,
+                    elo: elo,
+                })
+            }
+        };
     }
 }
 
@@ -97,6 +203,26 @@ impl Clock {
 
     fn as_millis(&self) -> u128 {
         self.duration.as_millis()
+    }
+}
+
+impl fmt::Display for Clock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut total_secs = self.duration.as_secs_f32();
+        let mut minutes = (total_secs / 60.0) as u32;
+        let hours = minutes / 60;
+
+        total_secs -= (minutes * 60) as f32;
+        minutes -= hours * 60;
+
+        write!(
+            f,
+            "{}:{:02}:{:02}.{:01}",
+            hours,
+            minutes,
+            total_secs.trunc() as u32,
+            (total_secs.fract() * 10.0) as u32
+        )
     }
 }
 
@@ -188,9 +314,9 @@ pub enum Delay {
 pub struct PGNGiffer {
     drawer: BoardDrawer,
     position: Chess,
-    encoder: Encoder<BufWriter<fs::File>>,
+    output_path: String,
     delay: Delay,
-    // frames: Vec<Frame<'a>>,
+    player_bars: bool,
     last_frame_delay: u16,
     first_frame_delay: u16,
     players: Players,
@@ -221,6 +347,7 @@ impl PGNGiffer {
         pieces_path: &str,
         font_path: &str,
         flip: bool,
+        player_bars: bool,
         board_size: u32,
         output_path: &str,
         delay: Delay,
@@ -229,23 +356,14 @@ impl PGNGiffer {
         dark: [u8; 4],
         light: [u8; 4],
     ) -> Result<Self, GifferError> {
-        let file =
-            fs::File::create(output_path).map_err(|source| GifferError::CreateOutput { source })?;
-        let buffer = BufWriter::with_capacity(1000, file);
-
         let drawer = BoardDrawer::new(pieces_path, flip, font_path, board_size as u32, dark, light)
             .map_err(|source| GifferError::DrawerError { source: source })?;
-
-        let mut encoder = Encoder::new(buffer, drawer.size() as u16, drawer.size() as u16, &[])
-            .map_err(|source| GifferError::InitializeEncoder { source })?;
-        encoder
-            .set_repeat(Repeat::Infinite)
-            .map_err(|source| GifferError::InitializeEncoder { source })?;
 
         Ok(PGNGiffer {
             drawer: drawer,
             position: Chess::default(),
-            encoder: encoder,
+            output_path: output_path.to_owned(),
+            player_bars: player_bars,
             delay: delay,
             first_frame_delay: first_frame_delay,
             last_frame_delay: last_frame_delay,
@@ -254,6 +372,24 @@ impl PGNGiffer {
             boards: Vec::new(),
             clocks: GameClocks::default(),
         })
+    }
+
+    pub fn build_encoder(
+        &mut self,
+        width: u16,
+        height: u16,
+    ) -> Result<Encoder<BufWriter<fs::File>>, GifferError> {
+        let file = fs::File::create(&self.output_path)
+            .map_err(|source| GifferError::CreateOutput { source })?;
+        let buffer = BufWriter::with_capacity(1000, file);
+
+        let mut encoder = Encoder::new(buffer, width, height, &[])
+            .map_err(|source| GifferError::InitializeEncoder { source })?;
+        encoder
+            .set_repeat(Repeat::Infinite)
+            .map_err(|source| GifferError::InitializeEncoder { source })?;
+
+        Ok(encoder)
     }
 }
 
@@ -271,14 +407,6 @@ impl Visitor for PGNGiffer {
                 self.position.board()
             ));
         self.boards.push(board);
-        // let mut frame = Frame::from_rgba_speed(
-        //     self.drawer.size() as u16,
-        //     self.drawer.size() as u16,
-        //     &mut board.into_raw(),
-        //     30,
-        // );
-        // frame.delay = self.delay;
-        // self.frames.push(frame);
     }
 
     fn begin_variation(&mut self) -> Skip {
@@ -289,10 +417,67 @@ impl Visitor for PGNGiffer {
     fn header(&mut self, key: &[u8], value: RawHeader<'_>) {
         match std::str::from_utf8(key) {
             Ok("White") => {
-                self.players.white = Some(Player::new(&value.decode_utf8_lossy().to_string()));
+                let name = &value.decode_utf8_lossy().to_string();
+
+                log::debug!("White: {}", name);
+                match self.players.white {
+                    Some(_) => self
+                        .players
+                        .update_player_name(shakmaty::Color::White, name),
+                    None => self.players.create_player(
+                        shakmaty::Color::White,
+                        Some(name.to_string()),
+                        None,
+                        None,
+                    ),
+                };
             }
             Ok("Black") => {
-                self.players.black = Some(Player::new(&value.decode_utf8_lossy().to_string()));
+                let name = &value.decode_utf8_lossy().to_string();
+
+                log::debug!("Black: {}", name);
+                match self.players.black {
+                    Some(_) => self
+                        .players
+                        .update_player_name(shakmaty::Color::Black, name),
+                    None => self.players.create_player(
+                        shakmaty::Color::Black,
+                        Some(name.to_string()),
+                        None,
+                        None,
+                    ),
+                };
+            }
+            Ok("WhiteElo") => {
+                let elo = &value
+                    .decode_utf8_lossy()
+                    .to_string()
+                    .parse::<u32>()
+                    .expect("WhiteElo could not be parsed");
+
+                match self.players.white {
+                    Some(_) => self.players.update_player_elo(shakmaty::Color::White, *elo),
+                    None => {
+                        self.players
+                            .create_player(shakmaty::Color::White, None, None, Some(*elo))
+                    }
+                };
+            }
+            Ok("BlackElo") => {
+                let elo = &value
+                    .decode_utf8_lossy()
+                    .to_string()
+                    .parse::<u32>()
+                    .expect("BlackElo could not be parsed");
+
+                log::debug!("BlackElo: {}", elo);
+                match self.players.black {
+                    Some(_) => self.players.update_player_elo(shakmaty::Color::Black, *elo),
+                    None => {
+                        self.players
+                            .create_player(shakmaty::Color::Black, None, None, Some(*elo))
+                    }
+                };
             }
             Ok("TimeControl") => {
                 let inc = &value
@@ -308,6 +493,31 @@ impl Visitor for PGNGiffer {
         }
     }
 
+    /// Check if we managed to parse players and adjust the initial board
+    fn end_headers(&mut self) -> Skip {
+        log::debug!("Players: {}", self.players.exist());
+        if self.players.exist() && self.player_bars == true {
+            log::debug!("Adding player bars to first board");
+            let board = self.boards.pop().expect("Initial board should exist");
+            let mut new_board = self.drawer.add_player_bar_space(board);
+            log::debug!(
+                "New board width: {}, height: {}",
+                new_board.width(),
+                new_board.height()
+            );
+
+            let white_player = self.players.white.as_ref().unwrap().to_string();
+            let black_player = self.players.black.as_ref().unwrap().to_string();
+            self.drawer
+                .draw_player_bars(&white_player, &black_player, &mut new_board)
+                .expect("Failed to draw player bars");
+
+            self.boards.push(new_board);
+        }
+
+        Skip(false)
+    }
+
     /// Calls BoardDrawer.draw_move with every move and stores the resulting board
     fn san(&mut self, san_plus: SanPlus) {
         if let Ok(m) = san_plus.san.to_move(&self.position) {
@@ -316,15 +526,25 @@ impl Visitor for PGNGiffer {
                 .draw_move(&m, self.position.turn(), &mut board)
                 .expect(&format!("Failed to draw move: {}", m));
 
-            // let mut frame = Frame::from_rgba_speed(
-            //     self.drawer.size() as u16,
-            //     self.drawer.size() as u16,
-            //     &mut board.into_raw(),
-            //     10,
-            // );
-            // frame.delay = self.delay;
-            // self.frames.push(frame);
-            self.boards.push(board);
+            if self.players.exist() && self.player_bars == true {
+                log::debug!("Adding player bars");
+                let mut new_board = self.drawer.add_player_bar_space(board);
+                log::debug!(
+                    "New board width: {}, height: {}",
+                    new_board.width(),
+                    new_board.height()
+                );
+                let white_player = self.players.white.as_ref().unwrap().to_string();
+                let black_player = self.players.black.as_ref().unwrap().to_string();
+                self.drawer
+                    .draw_player_bars(&white_player, &black_player, &mut new_board)
+                    .expect("Failed to draw player bars");
+
+                self.boards.push(new_board);
+            } else {
+                self.boards.push(board);
+            }
+
             log::debug!("Pushing board for move {:?}", m);
             self.position.play_unchecked(&m);
         }
@@ -361,15 +581,57 @@ impl Visitor for PGNGiffer {
     /// Assigns delays to each frame based on self.delay and self.last_frame_multiplier.
     fn end_game(&mut self) -> Self::Result {
         let total_frames = self.boards.len();
-        for (n, b) in self.boards.drain(..).enumerate() {
-            log::debug!("Building frame for board number: {}", n);
-            let mut frame = Frame::from_rgba_speed(
+        let (height, width) = if self.players.exist() && self.player_bars == true {
+            let bar_size = self.drawer.square_size() * 2;
+            (
+                (self.drawer.size() + bar_size) as u16,
                 self.drawer.size() as u16,
-                self.drawer.size() as u16,
-                &mut b.into_raw(),
-                10,
-            );
+            )
+        } else {
+            (self.drawer.size() as u16, self.drawer.size() as u16)
+        };
+        log::debug!(
+            "Size: {}, width: {}, height: {}",
+            self.drawer.size(),
+            width,
+            height
+        );
 
+        let mut encoder = self.build_encoder(width, height)?;
+
+        for (n, mut b) in self.boards.drain(..).enumerate() {
+            log::debug!("Building frame for board number: {}", n);
+            log::debug!("Board width: {}, height: {}", b.width(), b.height());
+
+            let turn = n / 2;
+
+            let mut white_clock = self.clocks.white.get(turn);
+            let mut black_clock = self.clocks.black.get(turn);
+
+            if n == (total_frames - 1) {
+                if white_clock.is_none() {
+                    white_clock = self.clocks.white.get(turn - 1);
+                }
+                if black_clock.is_none() {
+                    black_clock = self.clocks.black.get(turn - 1);
+                }
+            }
+
+            if white_clock.is_some()
+                && black_clock.is_some()
+                && self.players.exist()
+                && self.player_bars == true
+            {
+                self.drawer.draw_player_clocks(
+                    &white_clock.unwrap().to_string(),
+                    &black_clock.unwrap().to_string(),
+                    &mut b,
+                )?;
+            }
+
+            let mut frame = Frame::from_rgba_speed(width, height, &mut b.into_raw(), 10);
+
+            log::debug!("Calculating delay for turn: {}", turn);
             if n == (total_frames - 1) {
                 log::debug!("LAST FRAME");
                 frame.delay = self.last_frame_delay / 10;
@@ -378,11 +640,9 @@ impl Visitor for PGNGiffer {
             } else {
                 match self.delay {
                     Delay::Duration(d) => {
-                        frame.delay = d;
+                        frame.delay = d / 10;
                     }
                     Delay::Real => {
-                        let turn = n / 2;
-                        log::debug!("Calculating delay for turn: {}", turn);
                         if n & 1 != 0 {
                             frame.delay = match self.clocks.turn_delay(turn, Color::Black) {
                                 Some(d) => d / 10,
@@ -397,9 +657,10 @@ impl Visitor for PGNGiffer {
                     }
                 }
             }
+
             log::debug!("Frame delay set to: {}", frame.delay);
             log::debug!("Encoding frame for board number: {}", n);
-            self.encoder
+            encoder
                 .write_frame(&frame)
                 .map_err(|source| GifferError::FrameEncoding { source })?;
         }

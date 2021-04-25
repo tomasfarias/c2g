@@ -168,12 +168,15 @@ impl Chess2Gif {
             None => panic!("Last frame delay must be defined as it has a default value"),
         };
 
+        let no_player_bars = matches.is_present("no-player-bars");
+
         Ok(Chess2Gif {
             pgn: pgn,
             giffer: PGNGiffer::new(
                 pieces_path,
                 font_path,
                 flip,
+                !no_player_bars,
                 size,
                 output,
                 delay,
