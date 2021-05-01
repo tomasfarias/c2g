@@ -1,3 +1,5 @@
+use std::fmt;
+
 use image::{imageops, ImageBuffer, Rgba, RgbaImage};
 use include_dir::{include_dir, Dir};
 use log;
@@ -65,6 +67,54 @@ pub struct SVGForest {
     svg_options: Options,
 }
 
+pub enum FontWeight {
+    Normal,
+    Bold,
+    Bolder,
+    Lighter,
+    Number(f32),
+}
+
+impl fmt::Display for FontWeight {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match *self {
+            FontWeight::Normal => write!(f, "normal"),
+            FontWeight::Bold => write!(f, "bold"),
+            FontWeight::Bolder => write!(f, "bolder"),
+            FontWeight::Lighter => write!(f, "lighter"),
+            FontWeight::Number(n) => write!(f, "{}", n),
+        }
+    }
+}
+
+pub enum FontSize {
+    XXSmall,
+    XSmall,
+    Small,
+    Medium,
+    Large,
+    XLarge,
+    XXLarge,
+    XXXLarge,
+    Unit(f32, String),
+}
+
+impl fmt::Display for FontSize {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FontSize::XXSmall => write!(f, "xx-small"),
+            FontSize::XSmall => write!(f, "x-small"),
+            FontSize::Small => write!(f, "small"),
+            FontSize::Medium => write!(f, "medium"),
+            FontSize::Large => write!(f, "large"),
+            FontSize::XLarge => write!(f, "x-large"),
+            FontSize::XXLarge => write!(f, "xx-large"),
+            FontSize::XXXLarge => write!(f, "xxx-large"),
+            FontSize::Unit(n, s) => write!(f, "{}{}", n, s),
+        }
+    }
+}
+
 impl SVGForest {
     pub fn new(pieces_dir: &str, font: &str) -> Result<Self, DrawerError> {
         let mut opt = Options::default();
@@ -101,9 +151,11 @@ impl SVGForest {
         width: u32,
         x: u32,
         y: u32,
+        font_weight: FontWeight,
+        font_size: FontSize,
     ) -> Result<Tree, DrawerError> {
         let svg_string = format!(
-            "<svg xmlns:svg=\"http://www.w3.org/2000/svg\" xmlns=\"http://www.w3.org/2000/svg\" version=\"1.0\" height=\"{}\" width=\"{}\" style=\"background-color:rgb({},{},{})\"> <text x=\"{}\" y=\"{}\" fill=\"rgb({}, {}, {})\" font-weight=\"600\">{}</text></svg>",
+            "<svg xmlns:svg=\"http://www.w3.org/2000/svg\" xmlns=\"http://www.w3.org/2000/svg\" version=\"1.0\" height=\"{}\" width=\"{}\" style=\"background-color:rgb({},{},{})\"> <text x=\"{}%\" y=\"{}%\" fill=\"rgb({}, {}, {})\" font-weight=\"{}\" font-size=\"{}\" dominant-baseline=\"text-bottom\" text-anchor=\"start\">{}</text></svg>",
             height,
             width,
             background[0],
@@ -114,6 +166,8 @@ impl SVGForest {
             color[0],
             color[1],
             color[2],
+            font_weight.to_string(),
+            font_size.to_string(),
             s,
         );
 
@@ -428,6 +482,8 @@ impl BoardDrawer {
             width,
             x,
             y,
+            FontWeight::Bold,
+            FontSize::Unit(height as f32, "px".to_string()),
         )?;
 
         let fit_to = FitTo::Height(height);
@@ -458,8 +514,8 @@ impl BoardDrawer {
                     square,
                     self.size / 32,
                     self.size / 32,
-                    self.size / 128,
-                    self.size / 32 - self.size / 128,
+                    5,
+                    75,
                 )?;
                 let paint = PixmapPaint::default();
                 let transform = Transform::default();
@@ -481,8 +537,8 @@ impl BoardDrawer {
                     square,
                     self.size / 32,
                     self.size / 32,
-                    self.size / 128,
-                    self.size / 32,
+                    5,
+                    75,
                 )?;
                 let paint = PixmapPaint::default();
                 let transform = Transform::default();
@@ -513,6 +569,8 @@ impl BoardDrawer {
             width,
             x,
             y,
+            FontWeight::Bold,
+            FontSize::Unit(height as f32 * 0.5, "px".to_string()),
         )?;
 
         let fit_to = FitTo::Height(height);
@@ -530,22 +588,22 @@ impl BoardDrawer {
         img: &mut RgbaImage,
     ) -> Result<(), DrawerError> {
         let mut pixmap = Pixmap::new(self.size, self.square_size()).unwrap();
-        let (color, background_color) = match player_color {
+        let (color, background_color, y) = match player_color {
             shakmaty::Color::White => {
                 pixmap.fill(self.light_color());
-                (self.dark, self.light)
+                (self.dark, self.light, 65)
             }
             shakmaty::Color::Black => {
                 pixmap.fill(self.dark_color());
-                (self.light, self.dark)
+                (self.light, self.dark, 65)
             }
         };
 
         let player_pixmap = self.str_pixmap(
             self.square_size(),
             self.size,
-            0,
-            self.square_size() * 3 / 5,
+            2,
+            y,
             player,
             color,
             background_color,
@@ -591,11 +649,11 @@ impl BoardDrawer {
             }
         };
 
-        let player_pixmap = self.str_pixmap(
+        let clock_pixmap = self.str_pixmap(
             self.square_size() * 3 / 4,
             self.square_size() * 2,
-            0,
-            self.square_size() * 3 / 5,
+            10,
+            65,
             clock,
             color,
             background_color,
@@ -603,7 +661,7 @@ impl BoardDrawer {
 
         let paint = PixmapPaint::default();
         let transform = Transform::default();
-        pixmap.draw_pixmap(0, 0, player_pixmap.as_ref(), &paint, transform, None);
+        pixmap.draw_pixmap(0, 0, clock_pixmap.as_ref(), &paint, transform, None);
 
         let player_image = ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
             .ok_or(DrawerError::ImageTooBig {
@@ -620,7 +678,7 @@ impl BoardDrawer {
         imageops::overlay(
             img,
             &player_image,
-            self.size - self.square_size() * 2,
+            self.size - (self.square_size() * 17 / 8), // This leaves a 1 / 8 * square_size margin on the right side
             y + self.square_size() / 8,
         );
 
