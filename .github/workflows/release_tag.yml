@@ -70,6 +70,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Get tag
+        id: tagName
         uses: olegtarasov/get-tag@v2.1
         with:
           tagRegex: "v(.*)"
@@ -79,4 +80,4 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          tags: tomasfarias/c2g:$GIT_TAG_NAME,tomasfarias/c2g:latest
+          tags: tomasfarias/c2g:${{ steps.tagName.outputs.tag }},tomasfarias/c2g:latest
