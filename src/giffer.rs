@@ -208,21 +208,17 @@ impl Clock {
 
 impl fmt::Display for Clock {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut total_secs = self.duration.as_secs_f32();
-        let mut minutes = (total_secs / 60.0) as u32;
+        let millis = self.duration.as_millis();
+        let mut tenth_secs = millis / 100;
+        let mut secs = millis / 1000;
+        let mut minutes = secs / 60;
         let hours = minutes / 60;
 
-        total_secs -= (minutes * 60) as f32;
+        tenth_secs -= secs * 10;
+        secs -= minutes * 60;
         minutes -= hours * 60;
 
-        write!(
-            f,
-            "{}:{:02}:{:02}.{:01}",
-            hours,
-            minutes,
-            total_secs.trunc() as u32,
-            (total_secs.fract() * 10.0) as u32
-        )
+        write!(f, "{}:{:02}:{:02}.{:01}", hours, minutes, secs, tenth_secs,)
     }
 }
 
@@ -741,5 +737,23 @@ mod tests {
 
         assert_eq!(game_clocks.turn_delay(turn + 2, Color::Black), Some(300));
         assert_eq!(game_clocks.turn_delay(turn + 2, Color::White), Some(6800));
+    }
+
+    #[test]
+    fn test_display_clocks() {
+        let clock = Clock::from_time_str("0:01:00");
+        assert_eq!(format!("{}", clock), "0:01:00.0");
+
+        let clock = Clock::from_millis(60000 as u32);
+        assert_eq!(format!("{}", clock), "0:01:00.0");
+
+        let clock = Clock::from_millis(55100 as u32);
+        assert_eq!(format!("{}", clock), "0:00:55.1");
+    }
+
+    #[test]
+    fn test_clocks_as_millis() {
+        let clock = Clock::from_time_str("0:01:05.1");
+        assert_eq!(clock.as_millis(), 65100);
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "c2g"
-version = "0.5.4"
+version = "0.5.5"
 authors = ["Tomas Farias <tomas@tomasfarias.dev>"]
 edition = "2018"
 
