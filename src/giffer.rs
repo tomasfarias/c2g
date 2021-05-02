@@ -603,18 +603,13 @@ impl Visitor for PGNGiffer {
             log::debug!("Building frame for board number: {}", n);
             log::debug!("Board width: {}, height: {}", b.width(), b.height());
 
-            let turn = n / 2;
+            let turn = if n == 0 { n } else { (n - 1) / 2 };
 
-            let mut white_clock = self.clocks.white.get(turn);
+            let white_clock = self.clocks.white.get(turn);
             let mut black_clock = self.clocks.black.get(turn);
 
-            if n == (total_frames - 1) {
-                if white_clock.is_none() {
-                    white_clock = self.clocks.white.get(turn - 1);
-                }
-                if black_clock.is_none() {
-                    black_clock = self.clocks.black.get(turn - 1);
-                }
+            if turn > 0 && n % 2 != 0 {
+                black_clock = self.clocks.black.get(turn - 1);
             }
 
             if white_clock.is_some()
