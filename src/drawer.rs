@@ -248,6 +248,10 @@ impl BoardDrawer {
         self.size
     }
 
+    pub fn flip(&self) -> bool {
+        self.flip
+    }
+
     pub fn image_buffer(&self) -> RgbaImage {
         ImageBuffer::new(self.size, self.size)
     }
