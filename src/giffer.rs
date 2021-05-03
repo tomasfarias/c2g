@@ -261,12 +261,14 @@ impl GameClocks {
         if turn_clock.is_none() || prev_turn_clock.is_none() {
             None
         } else {
-            log::debug!(
-                "Turn clock: {:?}, previous: {:?}",
-                turn_clock,
-                prev_turn_clock
-            );
             let increment = self.increment.unwrap_or(0);
+            log::debug!(
+                "Turn clock: {:?}, previous: {:?}, increment: {:?}",
+                turn_clock,
+                prev_turn_clock,
+                increment,
+            );
+
             let prev = prev_turn_clock.unwrap().add_millis(increment);
             let curr = turn_clock.unwrap();
 
@@ -479,7 +481,7 @@ impl Visitor for PGNGiffer {
                 let inc = &value
                     .decode_utf8_lossy()
                     .to_string()
-                    .split(":")
+                    .split("+")
                     .collect::<Vec<&str>>()
                     .get(1)
                     .map_or_else(|| None, |s| Some(s.parse::<u16>().unwrap() * 1000));
