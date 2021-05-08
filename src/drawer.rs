@@ -62,11 +62,7 @@ fn font_data(font: &str) -> Result<Vec<u8>, DrawerError> {
     Ok(buffer)
 }
 
-pub struct SVGForest {
-    pieces_dir: String,
-    svg_options: Options,
-}
-
+/// SVG font-weight attribute options
 pub enum FontWeight {
     Normal,
     Bold,
@@ -87,6 +83,7 @@ impl fmt::Display for FontWeight {
     }
 }
 
+/// SVG font-size attribute options
 pub enum FontSize {
     XXSmall,
     XSmall,
@@ -115,6 +112,12 @@ impl fmt::Display for FontSize {
     }
 }
 
+/// A collection of SVG trees
+pub struct SVGForest {
+    pieces_dir: String,
+    svg_options: Options,
+}
+
 impl SVGForest {
     pub fn new(pieces_dir: &str, font: &str) -> Result<Self, DrawerError> {
         let mut opt = Options::default();
@@ -123,6 +126,7 @@ impl SVGForest {
         let mut fonts = fontdb::Database::new();
         let font_data = font_data(font)?;
         fonts.load_font_data(font_data);
+        opt.keep_named_groups = true;
         opt.fontdb = fonts;
         opt.font_size = 16.0;
         // There should only be 1 font in DB
@@ -134,10 +138,34 @@ impl SVGForest {
         })
     }
 
-    pub fn piece_tree(&self, role: &Role, color: &shakmaty::Color) -> Result<Tree, DrawerError> {
-        let piece_path = format!("{}/{}_{}.svg", self.pieces_dir, color.char(), role.char());
-        let svg_string = piece_svg_string(&piece_path)?;
-
+    pub fn piece_tree(
+        &self,
+        role: &Role,
+        color: &shakmaty::Color,
+        additional: Option<&str>,
+    ) -> Result<Tree, DrawerError> {
+        let piece_path = match additional {
+            Some(s) => format!(
+                "{}/{}_{}_{}.svg",
+                self.pieces_dir,
+                color.char(),
+                role.char(),
+                s
+            ),
+            None => format!("{}/{}_{}.svg", self.pieces_dir, color.char(), role.char()),
+        };
+        let svg_string = piece_svg_string(&piece_path).unwrap_or_else(
+            // Fallback to regular piece if additional not found
+            |_| {
+                piece_svg_string(&format!(
+                    "{}/{}_{}.svg",
+                    self.pieces_dir,
+                    color.char(),
+                    role.char()
+                ))
+                .unwrap()
+            },
+        );
         Tree::from_str(&svg_string, &self.svg_options)
             .map_err(|source| DrawerError::LoadPieceSVG { source: source })
     }
@@ -297,7 +325,7 @@ impl BoardDrawer {
 
         for (square, piece) in pieces {
             log::debug!("Initializing {:?} in {:?}", piece, square);
-            self.draw_piece(&square, &piece.role, piece.color, false, &mut board)?;
+            self.draw_piece(&square, &piece.role, piece.color, false, &mut board, None)?;
         }
 
         self.draw_ranks(2, 6, &mut board)?;
@@ -343,9 +371,9 @@ impl BoardDrawer {
                 let blank_to_square = if capture.is_some() { true } else { false };
 
                 if let Some(promoted) = promotion {
-                    self.draw_piece(to, promoted, color, blank_to_square, img)?;
+                    self.draw_piece(to, promoted, color, blank_to_square, img, None)?;
                 } else {
-                    self.draw_piece(to, role, color, blank_to_square, img)?;
+                    self.draw_piece(to, role, color, blank_to_square, img, None)?;
                 }
             }
             Move::EnPassant { from, to } => {
@@ -356,7 +384,7 @@ impl BoardDrawer {
                 let taken_pawn = Square::from_coords(to.file(), from.rank());
                 self.draw_square(&taken_pawn, img)?;
 
-                self.draw_piece(to, &Role::Pawn, color, true, img)?;
+                self.draw_piece(to, &Role::Pawn, color, true, img, None)?;
             }
             Move::Castle { king, rook } => {
                 // King and Rook initial squares, e.g. E1 and H1 respectively.
@@ -368,11 +396,11 @@ impl BoardDrawer {
 
                 let rook_square = king.offset(offset * 1).unwrap();
                 let king_square = king.offset(offset * 2).unwrap();
-                self.draw_piece(&king_square, &Role::King, color, true, img)?;
-                self.draw_piece(&rook_square, &Role::Rook, color, true, img)?;
+                self.draw_piece(&king_square, &Role::King, color, true, img, None)?;
+                self.draw_piece(&rook_square, &Role::Rook, color, true, img, None)?;
             }
             Move::Put { role, to } => {
-                self.draw_piece(to, role, color, true, img)?;
+                self.draw_piece(to, role, color, true, img, None)?;
             }
         };
 
@@ -382,6 +410,24 @@ impl BoardDrawer {
         }
 
         Ok(())
+    }
+
+    pub fn draw_checked_king(
+        &mut self,
+        square: &Square,
+        color: shakmaty::Color,
+        img: &mut RgbaImage,
+    ) -> Result<(), DrawerError> {
+        self.draw_piece(square, &Role::King, color, true, img, Some("check"))
+    }
+
+    pub fn draw_win_king(
+        &mut self,
+        square: &Square,
+        color: shakmaty::Color,
+        img: &mut RgbaImage,
+    ) -> Result<(), DrawerError> {
+        self.draw_piece(square, &Role::King, color, true, img, Some("win"))
     }
 
     pub fn draw_square(&mut self, square: &Square, img: &mut RgbaImage) -> Result<(), DrawerError> {
@@ -412,6 +458,7 @@ impl BoardDrawer {
         color: shakmaty::Color,
         blank_target: bool,
         img: &mut RgbaImage,
+        additional: Option<&str>,
     ) -> Result<(), DrawerError> {
         log::debug!("Drawing {:?} {:?} on {:?}", color, role, square);
         if blank_target {
@@ -423,7 +470,8 @@ impl BoardDrawer {
         log::debug!("Piece coordinates: ({}, {})", x, y);
 
         let height = self.square_size();
-        let mut resized_piece = self.piece_image(color, square, role, height, height)?;
+        let mut resized_piece =
+            self.piece_image(color, square, role, height, height, additional)?;
 
         if self.flip == true {
             imageops::flip_vertical_in_place(&mut resized_piece);
@@ -442,9 +490,11 @@ impl BoardDrawer {
         role: &'a Role,
         height: u32,
         width: u32,
+        additional: Option<&str>,
     ) -> Result<RgbaImage, DrawerError> {
         let fit_to = FitTo::Height(height);
-        let rtree = self.svgs.piece_tree(role, &piece_color)?;
+        let rtree = self.svgs.piece_tree(role, &piece_color, additional)?;
+        log::debug!("{:?}", rtree.svg_node());
         let mut pixmap = self.square_pixmap(height, width, square)?;
         resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
             svg: format!("{}_{}.svg", piece_color.char(), role.char()),

@@ -9,7 +9,7 @@ use image::RgbaImage;
 use log;
 use pgn_reader::{RawComment, RawHeader, SanPlus, Skip, Visitor};
 use regex::Regex;
-use shakmaty::{Chess, Color, Position, Setup};
+use shakmaty::{Chess, Color, Position, Role, Setup, Square};
 use thiserror::Error;
 
 use crate::drawer::{BoardDrawer, DrawerError};
@@ -149,6 +149,7 @@ impl Players {
     }
 }
 
+/// A player's clock in a chess game
 #[derive(Clone, Debug)]
 pub struct Clock {
     duration: Duration,
@@ -320,6 +321,7 @@ pub struct PGNGiffer {
     players: Players,
     boards: Vec<RgbaImage>,
     clocks: GameClocks,
+    to_clear: Vec<(Square, Role, Color)>,
 }
 
 #[derive(Error, Debug)]
@@ -369,6 +371,7 @@ impl PGNGiffer {
             players: Players::default(),
             boards: Vec::new(),
             clocks: GameClocks::default(),
+            to_clear: Vec::new(),
         })
     }
 
@@ -520,9 +523,33 @@ impl Visitor for PGNGiffer {
     fn san(&mut self, san_plus: SanPlus) {
         if let Ok(m) = san_plus.san.to_move(&self.position) {
             let mut board = self.drawer.image_buffer();
+            for (square, role, color) in self.to_clear.drain(..) {
+                self.drawer
+                    .draw_piece(&square, &role, color, false, &mut board, None)
+                    .expect(&format!("Failed to clear piece"));
+            }
+
             self.drawer
                 .draw_move(&m, self.position.turn(), &mut board)
                 .expect(&format!("Failed to draw move: {}", m));
+
+            log::debug!("Pushing board for move {:?}", m);
+            self.position.play_unchecked(&m);
+
+            if self.position.is_check() {
+                let color = self.position.turn();
+                let king_square = self
+                    .position
+                    .board()
+                    .king_of(color)
+                    .expect("King square should exist");
+                self.drawer
+                    .draw_checked_king(&king_square, color, &mut board)
+                    .expect(&format!("Failed to draw checked king: {}", king_square));
+
+                let to_be_cleared = (king_square, Role::King, color);
+                self.to_clear.push(to_be_cleared);
+            };
 
             if self.players.exist() && self.player_bars == true {
                 log::debug!("Adding player bars");
@@ -542,9 +569,6 @@ impl Visitor for PGNGiffer {
             } else {
                 self.boards.push(board);
             }
-
-            log::debug!("Pushing board for move {:?}", m);
-            self.position.play_unchecked(&m);
         }
     }
 
