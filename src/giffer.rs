@@ -6,13 +6,12 @@ use std::time::Duration;
 
 use gif::{self, Encoder, Frame, Repeat};
 use image::RgbaImage;
-use log;
-use pgn_reader::{RawComment, RawHeader, SanPlus, Skip, Visitor};
+use pgn_reader::{Outcome, RawComment, RawHeader, SanPlus, Skip, Visitor};
 use regex::Regex;
 use shakmaty::{Chess, Color, Position, Role, Setup, Square};
 use thiserror::Error;
 
-use crate::drawer::{BoardDrawer, DrawerError};
+use crate::drawer::{BoardDrawer, DrawerError, PieceInBoard, TerminationDrawer, TerminationReason};
 
 /// A player during a GIF frame. Used to add player bars at the top and the bottom of the GIF.
 #[derive(Clone, Debug)]
@@ -131,20 +130,8 @@ impl Players {
         elo: Option<u32>,
     ) {
         match color {
-            shakmaty::Color::White => {
-                self.white = Some(Player {
-                    name: name,
-                    title: title,
-                    elo: elo,
-                })
-            }
-            shakmaty::Color::Black => {
-                self.black = Some(Player {
-                    name: name,
-                    title: title,
-                    elo: elo,
-                })
-            }
+            shakmaty::Color::White => self.white = Some(Player { name, title, elo }),
+            shakmaty::Color::Black => self.black = Some(Player { name, title, elo }),
         };
     }
 }
@@ -174,6 +161,7 @@ impl<'a, 'b> Sub<&'b Clock> for &'a Clock {
 }
 
 impl Clock {
+    /// Create a clock from milliseconds
     fn from_millis<S>(millis: S) -> Self
     where
         S: Into<u64>,
@@ -183,6 +171,7 @@ impl Clock {
         }
     }
 
+    /// Create a new clock with the milliseconds added
     fn add_millis<S>(&self, millis: S) -> Self
     where
         S: Into<u64>,
@@ -192,6 +181,7 @@ impl Clock {
         }
     }
 
+    /// Construct a clock from a time string
     fn from_time_str(s: &str) -> Self {
         let splitted: Vec<&str> = s.split(":").collect();
         let hours_ms = splitted[0].parse::<u64>().unwrap() * 60 * 60 * 1000;
@@ -242,6 +232,7 @@ impl Default for GameClocks {
 }
 
 impl GameClocks {
+    /// Calculate the delay between a turn and the previous one
     fn turn_delay<U>(&self, turn: U, color: Color) -> Option<u16>
     where
         U: Into<usize>,
@@ -310,20 +301,6 @@ pub enum Delay {
     Real,
 }
 
-pub struct PGNGiffer {
-    drawer: BoardDrawer,
-    position: Chess,
-    output_path: String,
-    delay: Delay,
-    player_bars: bool,
-    last_frame_delay: u16,
-    first_frame_delay: u16,
-    players: Players,
-    boards: Vec<RgbaImage>,
-    clocks: GameClocks,
-    to_clear: Vec<(Square, Role, Color)>,
-}
-
 #[derive(Error, Debug)]
 pub enum GifferError {
     #[error(transparent)]
@@ -342,12 +319,31 @@ pub enum GifferError {
     },
 }
 
+pub struct PGNGiffer {
+    drawer: BoardDrawer,
+    termination_drawer: TerminationDrawer,
+    position: Chess,
+    output_path: String,
+    delay: Delay,
+    player_bars: bool,
+    terminations: bool,
+    last_frame_delay: u16,
+    first_frame_delay: u16,
+    termination: Option<String>,
+    players: Players,
+    boards: Vec<RgbaImage>,
+    clocks: GameClocks,
+    to_clear: Vec<(Square, Role, Color)>,
+}
+
 impl PGNGiffer {
     pub fn new(
         pieces_path: &str,
         font_path: &str,
+        terminations_path: &str,
         flip: bool,
         player_bars: bool,
+        terminations: bool,
         board_size: u32,
         output_path: &str,
         delay: Delay,
@@ -356,18 +352,28 @@ impl PGNGiffer {
         dark: [u8; 4],
         light: [u8; 4],
     ) -> Result<Self, GifferError> {
-        let drawer = BoardDrawer::new(pieces_path, flip, font_path, board_size as u32, dark, light)
-            .map_err(|source| GifferError::DrawerError { source: source })?;
+        let drawer = BoardDrawer::new(flip, board_size as u32, dark, light, pieces_path, font_path)
+            .map_err(|source| GifferError::DrawerError { source })?;
+        let circle_size = board_size / 8 / 3;
+        let termination_drawer = TerminationDrawer::new(
+            circle_size as u32,
+            circle_size as u32,
+            terminations_path,
+            font_path,
+        )
+        .map_err(|source| GifferError::DrawerError { source })?;
 
         Ok(PGNGiffer {
-            drawer: drawer,
+            drawer,
+            termination_drawer,
             position: Chess::default(),
             output_path: output_path.to_owned(),
-            player_bars: player_bars,
-            delay: delay,
-            first_frame_delay: first_frame_delay,
-            last_frame_delay: last_frame_delay,
-            // frames: Vec::new(),
+            player_bars,
+            terminations,
+            delay,
+            first_frame_delay,
+            last_frame_delay,
+            termination: None,
             players: Players::default(),
             boards: Vec::new(),
             clocks: GameClocks::default(),
@@ -490,6 +496,9 @@ impl Visitor for PGNGiffer {
                     .map_or_else(|| None, |s| Some(s.parse::<u16>().unwrap() * 1000));
                 self.clocks.increment = *inc;
             }
+            Ok("Termination") => {
+                self.termination = Some(value.decode_utf8_lossy().to_string());
+            }
             _ => (),
         }
     }
@@ -597,6 +606,107 @@ impl Visitor for PGNGiffer {
             }
             Err(_) => (),
         }
+    }
+
+    /// Check the outcome of the game to draw the appropiate termination circle
+    fn outcome(&mut self, outcome: Option<Outcome>) {
+        if !self.terminations {
+            return;
+        }
+
+        let mut latest_board = self.boards.pop().expect("No boards drawn!");
+        match outcome {
+            Some(o) => {
+                let reason = if self.position.is_checkmate() {
+                    "checkmate"
+                } else if self.position.is_stalemate() {
+                    "stalemate"
+                } else if self.position.is_insufficient_material() {
+                    "insufficient material"
+                } else {
+                    match &self.termination {
+                        Some(s) => {
+                            if s.contains("resignation") {
+                                "resignation"
+                            } else if s.contains("agreement") {
+                                "agreement"
+                            } else if s.contains("repetition") {
+                                "repetition"
+                            } else {
+                                "timeout"
+                            }
+                        }
+                        None => match o {
+                            Outcome::Draw => "agreement",
+                            Outcome::Decisive { winner: _ } => "resignation",
+                        },
+                    }
+                };
+                let termination_reason = TerminationReason::from_outcome(o, Some(reason));
+
+                let (winner_king, loser_king) = match o {
+                    Outcome::Draw => {
+                        // Doesn't really matter which king is which, since in draw there is no
+                        // winner or loser.
+                        let square1 = self
+                            .position
+                            .board()
+                            .king_of(shakmaty::Color::White)
+                            .expect("King doesn't exist");
+                        let square2 = self
+                            .position
+                            .board()
+                            .king_of(shakmaty::Color::Black)
+                            .expect("King doesn't exist");
+
+                        let king1 = PieceInBoard::new_king(square1, shakmaty::Color::White);
+                        let king2 = PieceInBoard::new_king(square2, shakmaty::Color::Black);
+
+                        (king1, king2)
+                    }
+                    Outcome::Decisive { winner: w } => {
+                        let winner = self
+                            .position
+                            .board()
+                            .king_of(w)
+                            .expect("King doesn't exist");
+                        let loser_color = match w {
+                            shakmaty::Color::Black => shakmaty::Color::White,
+                            shakmaty::Color::White => shakmaty::Color::Black,
+                        };
+                        let loser = self
+                            .position
+                            .board()
+                            .king_of(loser_color)
+                            .expect("King doesn't exist");
+
+                        let winner_king = PieceInBoard::new_king(winner, w);
+                        let loser_king = PieceInBoard::new_king(loser, loser_color);
+
+                        (winner_king, loser_king)
+                    }
+                };
+
+                log::debug!(
+                    "Drawing termination: {:?}, {:?}, {:?}, {:?}",
+                    o,
+                    termination_reason,
+                    winner_king,
+                    loser_king
+                );
+                self.termination_drawer
+                    .draw_termination_circles(
+                        termination_reason,
+                        winner_king,
+                        loser_king,
+                        &mut latest_board,
+                    )
+                    .expect("Failed to draw termination circle");
+                self.boards.push(latest_board);
+            }
+            // If the game didn't end, we don't do anything
+            None => (),
+        };
     }
 
     /// Iterates over boards collected for every move to encode GIF frames for each move.

@@ -2,8 +2,7 @@ use std::fmt;
 
 use image::{imageops, ImageBuffer, Rgba, RgbaImage};
 use include_dir::{include_dir, Dir};
-use log;
-use resvg;
+use pgn_reader::Outcome;
 use shakmaty::{self, File, Move, Pieces, Rank, Role, Square};
 use thiserror::Error;
 use tiny_skia::{self, Pixmap, PixmapPaint, Transform};
@@ -11,32 +10,32 @@ use usvg::{self, fontdb, FitTo, Options, Tree};
 
 use crate::utils;
 
-#[cfg(feature = "include-pieces")]
-static PIECES_DIR: Dir = include_dir!("pieces/");
+#[cfg(feature = "include-svgs")]
+static SVGS_DIR: Dir = include_dir!("svgs/");
 
-#[cfg(feature = "include-pieces")]
-fn piece_svg_string(piece_path: &str) -> Result<String, DrawerError> {
-    let piece_file = PIECES_DIR
-        .get_file(&piece_path)
-        .ok_or(DrawerError::PieceNotFound {
-            piece: piece_path.to_owned(),
+#[cfg(feature = "include-svgs")]
+fn load_svg_string(svg_path: &str) -> Result<String, DrawerError> {
+    let svg_file = SVGS_DIR
+        .get_file(&svg_path)
+        .ok_or(DrawerError::SVGNotFound {
+            svg: svg_path.to_owned(),
         })?;
-    Ok(piece_file
+    Ok(svg_file
         .contents_utf8()
         .expect("Failed to parse file contents")
         .to_owned())
 }
 
-#[cfg(not(feature = "include-pieces"))]
-fn piece_svg_string(piece_path: &str) -> Result<String, DrawerError> {
-    let mut f = fs::File::open(&piece_path).map_err(|_| DrawerError::PieceNotFound {
-        piece: piece_path.to_owned(),
+#[cfg(not(feature = "include-svgs"))]
+fn load_svg_string(svg_path: &str) -> Result<String, DrawerError> {
+    let mut f = fs::File::open(&svg_path).map_err(|_| DrawerError::SVGNotFound {
+        svg: svg_path.to_owned(),
     })?;
-    let mut piece_str = String::new();
-    f.read_to_string(&mut piece_str)
-        .map_err(|source| DrawerError::LoadFile { source: source })?;
+    let mut svg_str = String::new();
+    f.read_to_string(&mut svg_str)
+        .map_err(|source| DrawerError::LoadFile { source })?;
 
-    Ok(piece_str)
+    Ok(svg_str)
 }
 
 #[cfg(feature = "include-fonts")]
@@ -114,17 +113,22 @@ impl fmt::Display for FontSize {
 
 /// A collection of SVG trees
 pub struct SVGForest {
-    pieces_dir: String,
+    pieces_path: Option<String>,
+    terminations_path: Option<String>,
     svg_options: Options,
 }
 
 impl SVGForest {
-    pub fn new(pieces_dir: &str, font: &str) -> Result<Self, DrawerError> {
+    pub fn new(
+        font_path: &str,
+        pieces_path: Option<&str>,
+        terminations_path: Option<&str>,
+    ) -> Result<Self, DrawerError> {
         let mut opt = Options::default();
 
         // Load font for coordinates
         let mut fonts = fontdb::Database::new();
-        let font_data = font_data(font)?;
+        let font_data = font_data(font_path)?;
         fonts.load_font_data(font_data);
         opt.keep_named_groups = true;
         opt.fontdb = fonts;
@@ -133,7 +137,8 @@ impl SVGForest {
         opt.font_family = (*(opt.fontdb.faces())[0].family).to_owned();
 
         Ok(SVGForest {
-            pieces_dir: pieces_dir.to_owned(),
+            pieces_path: pieces_path.map_or(None, |s| Some(s.to_owned())),
+            terminations_path: terminations_path.map_or(None, |s| Some(s.to_owned())),
             svg_options: opt,
         })
     }
@@ -144,22 +149,17 @@ impl SVGForest {
         color: &shakmaty::Color,
         additional: Option<&str>,
     ) -> Result<Tree, DrawerError> {
-        let piece_path = match additional {
-            Some(s) => format!(
-                "{}/{}_{}_{}.svg",
-                self.pieces_dir,
-                color.char(),
-                role.char(),
-                s
-            ),
-            None => format!("{}/{}_{}.svg", self.pieces_dir, color.char(), role.char()),
+        let pieces_path = self.pieces_path.as_ref().expect("pieces_path not defined");
+        let full_piece_path = match additional {
+            Some(s) => format!("{}/{}_{}_{}.svg", pieces_path, color.char(), role.char(), s),
+            None => format!("{}/{}_{}.svg", pieces_path, color.char(), role.char()),
         };
-        let svg_string = piece_svg_string(&piece_path).unwrap_or_else(
+        let svg_string = load_svg_string(&full_piece_path).unwrap_or_else(
             // Fallback to regular piece if additional not found
             |_| {
-                piece_svg_string(&format!(
+                load_svg_string(&format!(
                     "{}/{}_{}.svg",
-                    self.pieces_dir,
+                    pieces_path,
                     color.char(),
                     role.char()
                 ))
@@ -167,7 +167,32 @@ impl SVGForest {
             },
         );
         Tree::from_str(&svg_string, &self.svg_options)
-            .map_err(|source| DrawerError::LoadPieceSVG { source: source })
+            .map_err(|source| DrawerError::LoadPieceSVG { source })
+    }
+
+    pub fn termination_tree<F>(
+        &self,
+        termination: F,
+        color: Option<shakmaty::Color>,
+    ) -> Result<Tree, DrawerError>
+    where
+        F: fmt::Display,
+    {
+        let terminations_path = self
+            .terminations_path
+            .as_ref()
+            .expect("terminations_path not defined");
+        let full_termination_path = match color {
+            Some(c) => format!("{}/{}_{}.svg", terminations_path, termination, c.char()),
+            None => format!("{}/{}.svg", terminations_path, termination),
+        };
+
+        let svg_string = load_svg_string(&full_termination_path).unwrap_or_else(
+            // Fallback to regular termination if color not found
+            |_| load_svg_string(&format!("{}/{}.svg", terminations_path, termination)).unwrap(),
+        );
+        Tree::from_str(&svg_string, &self.svg_options)
+            .map_err(|source| DrawerError::LoadPieceSVG { source })
     }
 
     pub fn str_svg_tree(
@@ -201,17 +226,209 @@ impl SVGForest {
 
         Tree::from_str(&svg_string, &self.svg_options).map_err(|source| {
             DrawerError::SVGTreeFromStrError {
-                source: source,
+                source,
                 s: s.to_owned(),
             }
         })
     }
 }
 
+/// A piece in a chess board
+#[derive(Debug)]
+pub struct PieceInBoard {
+    square: Square,
+    role: Role,
+    color: shakmaty::Color,
+}
+
+impl PieceInBoard {
+    pub fn new_king(square: shakmaty::Square, color: shakmaty::Color) -> Self {
+        PieceInBoard {
+            square,
+            color,
+            role: Role::King,
+        }
+    }
+}
+
+/// All possible endings for a chess game
+#[derive(Debug)]
+pub enum TerminationReason {
+    Checkmate { winner: shakmaty::Color },
+    Stalemate,
+    DrawAgreement,
+    DrawByRepetition,
+    Timeout { winner: shakmaty::Color },
+    Resignation { winner: shakmaty::Color },
+    InsufficientMaterial,
+    DrawByTimeoutVsInsufficientMaterial,
+}
+
+impl TerminationReason {
+    pub fn from_outcome(outcome: Outcome, reason: Option<&str>) -> Self {
+        match outcome {
+            Outcome::Decisive { winner: w } => {
+                let winner = shakmaty::Color::from_char(w.char()).unwrap();
+                match reason {
+                    None | Some("checkmate") => TerminationReason::Checkmate { winner },
+                    Some("timeout") => TerminationReason::Timeout { winner },
+                    Some("resignation") => TerminationReason::Resignation { winner },
+                    Some(&_) => panic!("Unknown termination reason"),
+                }
+            }
+            Outcome::Draw => match reason {
+                Some("insufficient material") => TerminationReason::InsufficientMaterial,
+                Some("timeout") => TerminationReason::DrawByTimeoutVsInsufficientMaterial,
+                Some("stalemate") => TerminationReason::Stalemate,
+                Some("repetition") => TerminationReason::DrawByRepetition,
+                Some("agreement") | None => TerminationReason::DrawAgreement,
+                Some(&_) => panic!("Unknown termination reason"),
+            },
+        }
+    }
+
+    pub fn is_draw(&self) -> bool {
+        match self {
+            TerminationReason::Stalemate
+            | TerminationReason::DrawAgreement
+            | TerminationReason::DrawByRepetition
+            | TerminationReason::DrawByTimeoutVsInsufficientMaterial
+            | TerminationReason::InsufficientMaterial => true,
+            _ => false,
+        }
+    }
+}
+
+impl fmt::Display for TerminationReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TerminationReason::Checkmate { winner: _ } => write!(f, "checkmate"),
+            // Each draw variation should have it's own circle eventually
+            TerminationReason::Stalemate
+            | TerminationReason::DrawAgreement
+            | TerminationReason::DrawByRepetition
+            | TerminationReason::DrawByTimeoutVsInsufficientMaterial
+            | TerminationReason::InsufficientMaterial => write!(f, "draw"),
+            TerminationReason::Resignation { winner: _ } => write!(f, "resignation"),
+            TerminationReason::Timeout { winner: _ } => write!(f, "timeout"),
+        }
+    }
+}
+
+/// Draws highlights to indicate the game's termination reason
+pub struct TerminationDrawer {
+    width: u32,
+    height: u32,
+    svgs: SVGForest,
+}
+
+impl TerminationDrawer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        termination_path: &str,
+        font_path: &str,
+    ) -> Result<Self, DrawerError> {
+        let svgs = SVGForest::new(font_path, None, Some(termination_path))?;
+
+        Ok(TerminationDrawer {
+            width,
+            height,
+            svgs,
+        })
+    }
+
+    pub fn termination_circle_pixmap(
+        &self,
+        color: shakmaty::Color,
+        reason: &TerminationReason,
+    ) -> Result<Pixmap, DrawerError> {
+        let mut pixmap = Pixmap::new(self.width, self.height).unwrap();
+
+        let rtree = self.svgs.termination_tree(reason, Some(color))?;
+
+        let fit_to = FitTo::Height(self.height);
+        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
+            svg: format!("{}", reason),
+        })?;
+
+        Ok(pixmap)
+    }
+
+    pub fn win_circle_pixmap(&self) -> Result<Pixmap, DrawerError> {
+        let mut pixmap = Pixmap::new(self.width, self.height).unwrap();
+
+        let rtree = self.svgs.termination_tree("win", None)?;
+
+        let fit_to = FitTo::Height(self.height);
+        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
+            svg: "win".to_string(),
+        })?;
+
+        Ok(pixmap)
+    }
+
+    pub fn termination_circle_image(
+        &self,
+        color: shakmaty::Color,
+        reason: &TerminationReason,
+    ) -> Result<RgbaImage, DrawerError> {
+        let pixmap = self.termination_circle_pixmap(color, reason)?;
+
+        ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).ok_or(
+            DrawerError::ImageTooBig {
+                image: format!("{}_{:?}.svg", reason, color),
+            },
+        )
+    }
+
+    pub fn win_circle_image(&self) -> Result<RgbaImage, DrawerError> {
+        let pixmap = self.win_circle_pixmap()?;
+
+        ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).ok_or(
+            DrawerError::ImageTooBig {
+                image: "win.svg".to_string(),
+            },
+        )
+    }
+
+    pub fn draw_termination_circles(
+        &mut self,
+        reason: TerminationReason,
+        winner: PieceInBoard,
+        loser: PieceInBoard,
+        img: &mut RgbaImage,
+    ) -> Result<(), DrawerError> {
+        let (circle_winner, circle_loser) = if reason.is_draw() {
+            let c1 = self.termination_circle_image(loser.color, &reason)?;
+            let c2 = self.termination_circle_image(winner.color, &reason)?;
+            (c1, c2)
+        } else {
+            let c1 = self.win_circle_image()?;
+            let c2 = self.termination_circle_image(loser.color, &reason)?;
+            (c1, c2)
+        };
+
+        let height = img.height();
+        let width = img.width();
+
+        let winner_x = (width / 8) * u32::from(winner.square.file());
+        let winner_y = height - (width / 8) * (u32::from(winner.square.rank()) + 2);
+
+        let loser_x = (width / 8) * u32::from(loser.square.file());
+        let loser_y = height - (width / 8) * (u32::from(loser.square.rank()) + 2);
+
+        imageops::overlay(img, &circle_winner, winner_x, winner_y);
+        imageops::overlay(img, &circle_loser, loser_x, loser_y);
+
+        Ok(())
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum DrawerError {
-    #[error("Piece {piece:?} not found in pieces directory")]
-    PieceNotFound { piece: String },
+    #[error("SVG {svg:?} not found")]
+    SVGNotFound { svg: String },
     #[error("Font {font:?} not found in fonts directory")]
     FontNotFound { font: String },
     #[error("Could not load file")]
@@ -233,29 +450,30 @@ pub enum DrawerError {
 }
 
 pub struct BoardDrawer {
-    svgs: SVGForest,
     size: u32,
     flip: bool,
     dark: Rgba<u8>,
     light: Rgba<u8>,
+    svgs: SVGForest,
 }
 
 impl BoardDrawer {
     pub fn new(
-        piece_path: &str,
         flip: bool,
-        font: &str,
         size: u32,
         dark: [u8; 4],
         light: [u8; 4],
+        pieces_path: &str,
+        font_path: &str,
     ) -> Result<Self, DrawerError> {
-        let svgs = SVGForest::new(piece_path, font)?;
+        let svgs = SVGForest::new(font_path, Some(pieces_path), None)?;
+
         Ok(BoardDrawer {
-            svgs: svgs,
-            size: size,
-            flip: flip,
+            size,
+            flip,
             dark: image::Rgba(dark),
             light: image::Rgba(light),
+            svgs,
         })
     }
 

@@ -1,16 +1,16 @@
 [package]
 name = "c2g"
-version = "0.5.7"
+version = "0.6.0"
 authors = ["Tomas Farias <tomas@tomasfarias.dev>"]
 edition = "2018"
 
 [features]
-default = ["include-fonts", "include-pieces"]
+default = ["include-fonts", "include-svgs"]
 # Embeds the fonts directory at compile time. Removes the need to pass a path to a local font when running the CLI.
 include-fonts = ["include_dir"]
 
-# Embeds the pieces directory at compile time. Removes the need to pass a path to a local directory containing SVG pieces when running the CLI.
-include-pieces = ["include_dir"]
+# Embeds the svgs directory at compile time. Removes the need to pass a path to a local directory containing SVG pieces and terminations when running the CLI.
+include-svgs = ["include_dir"]
 
 [dependencies]
 clap = "2.33"

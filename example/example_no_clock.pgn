@@ -1,0 +1,19 @@
+[Event "Live Chess"]
+[Site "Chess.com"]
+[Date "2021.04.18"]
+[Round "?"]
+[White "slowbullet"]
+[Black "ChessBrah"]
+[Result "0-1"]
+[ECO "B50"]
+[WhiteElo "1436"]
+[BlackElo "2880"]
+[TimeControl "180"]
+[EndTime "22:25:48 PDT"]
+[Termination "ChessBrah won by checkmate"]
+
+1. e4 c5 2. Nf3 d6 3. Bc4 Nc6 4. O-O e6 5. d4 cxd4 6. Nxd4 Nf6 7. Nc3 Be7 8. Be3
+O-O 9. Bd3 Nxd4 10. Bxd4 b6 11. e5 dxe5 12. Bxe5 Bb7 13. f3 Rc8 14. Ne4 Nd5 15.
+Qe1 f6 16. Bc3 Nxc3 17. Nxc3 e5 18. Bf5 Rc5 19. Rd1 Qb8 20. Be6+ Kh8 21. Qh4 Bc8
+22. Bd5 Qc7 23. g4 f5 24. Qh3 b5 25. Ne4 fxe4 26. Bxe4 h6 27. Qh5 Rc4 28. Bf5
+Bxf5 29. gxf5 Rh4 30. Qg6 e4 31. Qe6 Qxh2# 0-1

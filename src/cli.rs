@@ -24,7 +24,7 @@ impl Chess2Gif {
         T: Into<OsString> + Clone,
     {
         let app = App::new("Chess to GIF")
-            .version("0.5.6")
+            .version("0.6.0")
             .author("Tomas Farias <tomas@tomasfarias.dev>")
             .about("Turns a PGN chess game into a GIF")
             .arg(
@@ -83,6 +83,12 @@ impl Chess2Gif {
                     .help("Disable player bars at the top and bottom of the GIF"),
             )
             .arg(
+                Arg::with_name("no-terminations")
+                    .long("no-terminations")
+                    .takes_value(false)
+                    .help("Do not draw termination circles at the end of the GIF"),
+            )
+            .arg(
                 Arg::with_name("dark")
                     .short("d")
                     .long("dark")
@@ -108,15 +114,21 @@ impl Chess2Gif {
                 Arg::with_name("pieces-path")
                     .long("pieces-path")
                     .takes_value(true)
-                    .help("Path to directory containing SVGs of chess pieces. If compiled with include-pieces (default), this argument can be used to set a different family of pieces, defaults to cburnett")
-                    .default_value("cburnett"),
+                    .required(false)
+                    .help("Path to directory containing SVGs of chess pieces. If compiled with include-svgs (default), this argument can be used to set a different family of pieces, defaults to cburnett"),
+            ).arg(
+                Arg::with_name("terminations-path")
+                    .long("terminations-path")
+                    .takes_value(true)
+                    .required(false)
+                    .help("Path to directory containing SVGs of termination circles. If compiled with include-svgs (default), this argument can be ignored"),
             )
             .arg(
                 Arg::with_name("font-path")
                     .long("font-path")
                     .takes_value(true)
-                    .help("Path to desired coordinates font. If compiled with include-fonts, this argument can be used to set a different coordinate font, defaults to roboto")
-                    .default_value("roboto.ttf"),
+                    .required(false)
+                    .help("Path to desired coordinates font. If compiled with include-svgs, this argument can be used to set a different coordinate font, defaults to roboto"),
             );
 
         let matches = app.get_matches_from_safe(args)?;
@@ -134,12 +146,24 @@ impl Chess2Gif {
             None
         };
 
-        let pieces_path = matches
-            .value_of("pieces-path")
-            .expect("Path to pieces must be defined");
-        let font_path = matches
-            .value_of("font-path")
-            .expect("Path to coordinates must be defined");
+        let pieces_path = match matches.value_of("pieces-path") {
+            Some(p) => {
+                if cfg!(feature = "include-svgs") {
+                    format!("pieces/{}", p)
+                } else {
+                    p.to_string()
+                }
+            }
+            None => "pieces/cburnett".to_string(),
+        };
+        let terminations_path = match matches.value_of("terminations-path") {
+            Some(p) => p,
+            None => "terminations",
+        };
+        let font_path = match matches.value_of("font-path") {
+            Some(p) => p,
+            None => "roboto.ttf",
+        };
 
         let output = matches.value_of("output").expect("Output must be defined");
 
@@ -169,14 +193,17 @@ impl Chess2Gif {
         };
 
         let no_player_bars = matches.is_present("no-player-bars");
+        let no_terminations = matches.is_present("no-terminations");
 
         Ok(Chess2Gif {
-            pgn: pgn,
+            pgn,
             giffer: PGNGiffer::new(
-                pieces_path,
+                &pieces_path,
                 font_path,
+                terminations_path,
                 flip,
                 !no_player_bars,
+                !no_terminations,
                 size,
                 output,
                 delay,

@@ -1,7 +1,6 @@
 use std::io::{stderr, Write};
 use std::process;
 
-use clap;
 use thiserror::Error;
 
 use crate::giffer::GifferError;
