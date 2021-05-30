@@ -1,5 +1,25 @@
-use shakmaty::{File, Rank, Square};
+use shakmaty::{self, File, Rank, Role, Square};
 
+/// A piece in a chess board
+#[derive(Debug)]
+pub struct PieceInBoard {
+    pub square: Square,
+    pub role: Role,
+    pub color: shakmaty::Color,
+}
+
+impl PieceInBoard {
+    pub fn new_king(square: shakmaty::Square, color: shakmaty::Color) -> Self {
+        PieceInBoard {
+            square,
+            color,
+            role: Role::King,
+        }
+    }
+}
+
+/// Check if a square contains a coordinate. Coordindates are found in the A file
+/// and first rank
 pub fn has_coordinate(s: &Square, flip: bool) -> bool {
     if (s.rank() == Rank::First || s.file() == File::A) && flip == false {
         true
@@ -13,6 +33,12 @@ pub fn has_coordinate(s: &Square, flip: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_piece_in_board_new_king() {
+        let piece = PieceInBoard::new_king(Square::new(0), shakmaty::Color::Black);
+        assert_eq!(piece.role, Role::King);
+    }
 
     #[test]
     fn test_has_coordinate() {
