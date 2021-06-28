@@ -11,7 +11,10 @@ use regex::Regex;
 use shakmaty::{Chess, Color, Position, Role, Setup, Square};
 use thiserror::Error;
 
-use crate::drawer::{BoardDrawer, DrawerError, PieceInBoard, TerminationDrawer, TerminationReason};
+use crate::drawer::{
+    BoardDrawer, DrawerError, PieceInBoard, SVGFontConfig, SVGForest, TerminationDrawer,
+    TerminationReason,
+};
 
 /// A player during a GIF frame. Used to add player bars at the top and the bottom of the GIF.
 #[derive(Clone, Debug)]
@@ -334,13 +337,15 @@ pub struct PGNGiffer {
     boards: Vec<RgbaImage>,
     clocks: GameClocks,
     to_clear: Vec<(Square, Role, Color)>,
+    svgs: SVGForest,
 }
 
 impl PGNGiffer {
     pub fn new(
-        pieces_path: &str,
-        font_path: &str,
-        terminations_path: &str,
+        svgs_path: &str,
+        font_path: String,
+        font_family: Option<String>,
+        pieces: &str,
         flip: bool,
         player_bars: bool,
         terminations: bool,
@@ -352,16 +357,19 @@ impl PGNGiffer {
         dark: [u8; 4],
         light: [u8; 4],
     ) -> Result<Self, GifferError> {
-        let drawer = BoardDrawer::new(flip, board_size as u32, dark, light, pieces_path, font_path)
+        let drawer = BoardDrawer::new(flip, board_size as u32, dark, light)
             .map_err(|source| GifferError::DrawerError { source })?;
         let circle_size = board_size / 8 / 3;
-        let termination_drawer = TerminationDrawer::new(
-            circle_size as u32,
-            circle_size as u32,
-            terminations_path,
+        let termination_drawer = TerminationDrawer::new(circle_size as u32, circle_size as u32)
+            .map_err(|source| GifferError::DrawerError { source })?;
+
+        let svg_font_config = SVGFontConfig {
             font_path,
-        )
-        .map_err(|source| GifferError::DrawerError { source })?;
+            font_family,
+            ..Default::default()
+        };
+
+        let svgs = SVGForest::new(svg_font_config, svgs_path, pieces, "terminations")?;
 
         Ok(PGNGiffer {
             drawer,
@@ -378,6 +386,7 @@ impl PGNGiffer {
             boards: Vec::new(),
             clocks: GameClocks::default(),
             to_clear: Vec::new(),
+            svgs: svgs,
         })
     }
 
@@ -408,7 +417,7 @@ impl Visitor for PGNGiffer {
         let pieces = self.position.board().pieces();
         let board = self
             .drawer
-            .draw_position_from_empty(pieces)
+            .draw_position_from_empty(pieces, &self.svgs)
             .expect(&format!(
                 "Failed to draw initial position: {}",
                 self.position.board()
@@ -519,7 +528,7 @@ impl Visitor for PGNGiffer {
             let white_player = self.players.white.as_ref().unwrap().to_string();
             let black_player = self.players.black.as_ref().unwrap().to_string();
             self.drawer
-                .draw_player_bars(&white_player, &black_player, &mut new_board)
+                .draw_player_bars(&white_player, &black_player, &mut new_board, &self.svgs)
                 .expect("Failed to draw player bars");
 
             self.boards.push(new_board);
@@ -534,12 +543,12 @@ impl Visitor for PGNGiffer {
             let mut board = self.drawer.image_buffer();
             for (square, role, color) in self.to_clear.drain(..) {
                 self.drawer
-                    .draw_piece(&square, &role, color, false, &mut board, None)
+                    .draw_piece(&square, &role, color, false, &mut board, None, &self.svgs)
                     .expect(&format!("Failed to clear piece"));
             }
 
             self.drawer
-                .draw_move(&m, self.position.turn(), &mut board)
+                .draw_move(&m, self.position.turn(), &mut board, &self.svgs)
                 .expect(&format!("Failed to draw move: {}", m));
 
             log::debug!("Pushing board for move {:?}", m);
@@ -553,7 +562,7 @@ impl Visitor for PGNGiffer {
                     .king_of(color)
                     .expect("King square should exist");
                 self.drawer
-                    .draw_checked_king(&king_square, color, &mut board)
+                    .draw_checked_king(&king_square, color, &mut board, &self.svgs)
                     .expect(&format!("Failed to draw checked king: {}", king_square));
 
                 let to_be_cleared = (king_square, Role::King, color);
@@ -571,7 +580,7 @@ impl Visitor for PGNGiffer {
                 let white_player = self.players.white.as_ref().unwrap().to_string();
                 let black_player = self.players.black.as_ref().unwrap().to_string();
                 self.drawer
-                    .draw_player_bars(&white_player, &black_player, &mut new_board)
+                    .draw_player_bars(&white_player, &black_player, &mut new_board, &self.svgs)
                     .expect("Failed to draw player bars");
 
                 self.boards.push(new_board);
@@ -700,6 +709,7 @@ impl Visitor for PGNGiffer {
                         winner_king,
                         loser_king,
                         &mut latest_board,
+                        &self.svgs,
                     )
                     .expect("Failed to draw termination circle");
                 self.boards.push(latest_board);
@@ -753,6 +763,7 @@ impl Visitor for PGNGiffer {
                     &white_clock.unwrap().to_string(),
                     &black_clock.unwrap().to_string(),
                     &mut b,
+                    &self.svgs,
                 )?;
             }
 

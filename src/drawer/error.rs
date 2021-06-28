@@ -1,6 +1,8 @@
 use thiserror::Error;
 use usvg;
 
+/// An error with the drawer module. Could either come from SVG or font
+/// loading errors, or rendering errors
 #[derive(Error, Debug)]
 pub enum DrawerError {
     #[error("SVG {svg:?} not found")]
@@ -23,4 +25,6 @@ pub enum DrawerError {
     SVGRenderError { svg: String },
     #[error("A correct SVG for {s:?} could not be produced")]
     SVGTreeFromStrError { source: usvg::Error, s: String },
+    #[error("An SVGTree::{s:?} could not be loaded")]
+    LoadSVGTree { s: String },
 }

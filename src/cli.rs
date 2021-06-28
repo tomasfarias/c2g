@@ -111,24 +111,34 @@ impl Chess2Gif {
                     .help("RGBA color to use for the light squares"),
             )
             .arg(
-                Arg::with_name("pieces-path")
-                    .long("pieces-path")
+                Arg::with_name("svgs-path")
+                    .long("svgs-path")
                     .takes_value(true)
                     .required(false)
-                    .help("Path to directory containing SVGs of chess pieces. If compiled with include-svgs (default), this argument can be used to set a different family of pieces, defaults to cburnett"),
-            ).arg(
-                Arg::with_name("terminations-path")
-                    .long("terminations-path")
-                    .takes_value(true)
-                    .required(false)
-                    .help("Path to directory containing SVGs of termination circles. If compiled with include-svgs (default), this argument can be ignored"),
+                    .help("Path to directory containing SVGs of chess pieces and other effects. If compiled with include-svgs (default), this argument is ignored."),
             )
             .arg(
-                Arg::with_name("font-path")
-                    .long("font-path")
+                Arg::with_name("pieces")
+                    .long("pieces")
+                    .takes_value(true)
+                    .default_value("cburnett")
+                    .required(false)
+                    .help("Family of SVG pieces to use. Should be a directory inside svgs-path."),
+            )
+            .arg(
+                Arg::with_name("fonts-path")
+                    .long("fonts-path")
                     .takes_value(true)
                     .required(false)
-                    .help("Path to desired coordinates font. If compiled with include-svgs, this argument can be used to set a different coordinate font, defaults to roboto"),
+                    .help("Path to directory containing desired coordinates font. If compiled with include-fonts (default), this argument is ignored."),
+            )
+            .arg(
+                Arg::with_name("font-family")
+                    .long("font-family")
+                    .takes_value(true)
+                    .default_value("Roboto")
+                    .required(false)
+                    .help("Font family to use for coordinates. Should be a file inside fonts-path."),
             );
 
         let matches = app.get_matches_from_safe(args)?;
@@ -146,24 +156,30 @@ impl Chess2Gif {
             None
         };
 
-        let pieces_path = match matches.value_of("pieces-path") {
-            Some(p) => {
-                if cfg!(feature = "include-svgs") {
-                    format!("pieces/{}", p)
-                } else {
-                    p.to_string()
-                }
+        let svgs_path = if cfg!(feature = "include-svgs") {
+            "svgs/"
+        } else {
+            match matches.value_of("svgs-path") {
+                Some(p) => p,
+                None => "svgs/",
             }
-            None => "pieces/cburnett".to_string(),
         };
-        let terminations_path = match matches.value_of("terminations-path") {
-            Some(p) => p,
-            None => "terminations",
+
+        let font_path = if cfg!(feature = "include-fonts") {
+            "fonts/"
+        } else {
+            match matches.value_of("font-path") {
+                Some(p) => p,
+                None => "fonts/",
+            }
         };
-        let font_path = match matches.value_of("font-path") {
-            Some(p) => p,
-            None => "roboto.ttf",
-        };
+
+        let font_family = matches
+            .value_of("font-family")
+            .expect("Font-family must be defined or default value of roboto is used");
+        let pieces = matches
+            .value_of("pieces")
+            .expect("Pieces must be defined or default value of cburnett is used");
 
         let output = matches.value_of("output").expect("Output must be defined");
 
@@ -198,9 +214,10 @@ impl Chess2Gif {
         Ok(Chess2Gif {
             pgn,
             giffer: PGNGiffer::new(
-                &pieces_path,
-                font_path,
-                terminations_path,
+                svgs_path,
+                font_path.to_string(),
+                Some(font_family.to_string()),
+                pieces,
                 flip,
                 !no_player_bars,
                 !no_terminations,

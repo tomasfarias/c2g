@@ -7,7 +7,7 @@ use tiny_skia::{self, Pixmap};
 use usvg::FitTo;
 
 use super::error::DrawerError;
-use super::svgs::SVGForest;
+use super::svgs::{SVGForest, SVGTree};
 use super::utils::PieceInBoard;
 
 /// All possible endings for a chess game
@@ -80,33 +80,26 @@ impl fmt::Display for TerminationReason {
 pub struct TerminationDrawer {
     width: u32,
     height: u32,
-    svgs: SVGForest,
 }
 
 impl TerminationDrawer {
-    pub fn new(
-        width: u32,
-        height: u32,
-        termination_path: &str,
-        font_path: &str,
-    ) -> Result<Self, DrawerError> {
-        let svgs = SVGForest::new(font_path, None, Some(termination_path))?;
-
-        Ok(TerminationDrawer {
-            width,
-            height,
-            svgs,
-        })
+    pub fn new(width: u32, height: u32) -> Result<Self, DrawerError> {
+        Ok(TerminationDrawer { width, height })
     }
 
     pub fn termination_circle_pixmap(
         &self,
-        color: shakmaty::Color,
+        color: Option<shakmaty::Color>,
         reason: &TerminationReason,
+        svgs: &SVGForest,
     ) -> Result<Pixmap, DrawerError> {
         let mut pixmap = Pixmap::new(self.width, self.height).unwrap();
 
-        let rtree = self.svgs.termination_tree(reason, Some(color))?;
+        let svg_tree = SVGTree::Termination {
+            reason: reason.to_string(),
+            color: color,
+        };
+        let rtree = svgs.load_svg_tree(&svg_tree)?;
 
         let fit_to = FitTo::Height(self.height);
         resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
@@ -116,10 +109,13 @@ impl TerminationDrawer {
         Ok(pixmap)
     }
 
-    pub fn win_circle_pixmap(&self) -> Result<Pixmap, DrawerError> {
+    pub fn win_circle_pixmap(&self, svgs: &SVGForest) -> Result<Pixmap, DrawerError> {
         let mut pixmap = Pixmap::new(self.width, self.height).unwrap();
-
-        let rtree = self.svgs.termination_tree("win", None)?;
+        let svg_tree = SVGTree::Termination {
+            reason: "win".to_string(),
+            color: None,
+        };
+        let rtree = svgs.load_svg_tree(&svg_tree)?;
 
         let fit_to = FitTo::Height(self.height);
         resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
@@ -131,10 +127,11 @@ impl TerminationDrawer {
 
     pub fn termination_circle_image(
         &self,
-        color: shakmaty::Color,
+        color: Option<shakmaty::Color>,
         reason: &TerminationReason,
+        svgs: &SVGForest,
     ) -> Result<RgbaImage, DrawerError> {
-        let pixmap = self.termination_circle_pixmap(color, reason)?;
+        let pixmap = self.termination_circle_pixmap(color, reason, svgs)?;
 
         ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).ok_or(
             DrawerError::ImageTooBig {
@@ -143,8 +140,8 @@ impl TerminationDrawer {
         )
     }
 
-    pub fn win_circle_image(&self) -> Result<RgbaImage, DrawerError> {
-        let pixmap = self.win_circle_pixmap()?;
+    pub fn win_circle_image(&self, svgs: &SVGForest) -> Result<RgbaImage, DrawerError> {
+        let pixmap = self.win_circle_pixmap(svgs)?;
 
         ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).ok_or(
             DrawerError::ImageTooBig {
@@ -159,14 +156,15 @@ impl TerminationDrawer {
         winner: PieceInBoard,
         loser: PieceInBoard,
         img: &mut RgbaImage,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
         let (circle_winner, circle_loser) = if reason.is_draw() {
-            let c1 = self.termination_circle_image(loser.color, &reason)?;
-            let c2 = self.termination_circle_image(winner.color, &reason)?;
+            let c1 = self.termination_circle_image(Some(loser.color), &reason, svgs)?;
+            let c2 = self.termination_circle_image(Some(winner.color), &reason, svgs)?;
             (c1, c2)
         } else {
-            let c1 = self.win_circle_image()?;
-            let c2 = self.termination_circle_image(loser.color, &reason)?;
+            let c1 = self.win_circle_image(svgs)?;
+            let c2 = self.termination_circle_image(None, &reason, svgs)?;
             (c1, c2)
         };
 
@@ -189,12 +187,19 @@ impl TerminationDrawer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drawer::{SVGFontConfig, SVGForest};
 
     #[test]
     fn test_circle_pixmap_draw() {
-        let drawer = TerminationDrawer::new(16, 16, "terminations", "roboto.ttf").unwrap();
+        let drawer = TerminationDrawer::new(16, 16).unwrap();
+        let config = SVGFontConfig::default();
+        let svgs = SVGForest::new(config, "svgs", "cburnett", "terminations").unwrap();
         let circle = drawer
-            .termination_circle_pixmap(shakmaty::Color::Black, &TerminationReason::DrawAgreement)
+            .termination_circle_pixmap(
+                Some(shakmaty::Color::Black),
+                &TerminationReason::DrawAgreement,
+                &svgs,
+            )
             .unwrap();
 
         assert_eq!(circle.width(), 16);
@@ -203,8 +208,10 @@ mod tests {
 
     #[test]
     fn test_circle_pixmap_win() {
-        let drawer = TerminationDrawer::new(16, 16, "terminations", "roboto.ttf").unwrap();
-        let circle = drawer.win_circle_pixmap().unwrap();
+        let drawer = TerminationDrawer::new(16, 16).unwrap();
+        let config = SVGFontConfig::default();
+        let svgs = SVGForest::new(config, "svgs", "cburnett", "terminations").unwrap();
+        let circle = drawer.win_circle_pixmap(&svgs).unwrap();
 
         assert_eq!(circle.width(), 16);
         assert_eq!(circle.height(), 16);

@@ -4,7 +4,7 @@ use tiny_skia::{self, Pixmap, PixmapPaint, Transform};
 use usvg::FitTo;
 
 use super::error::DrawerError;
-use super::svgs::{FontSize, FontWeight, SVGForest};
+use super::svgs::{FontSize, FontWeight, SVGForest, SVGTree};
 use super::utils;
 
 pub struct BoardDrawer {
@@ -12,26 +12,15 @@ pub struct BoardDrawer {
     flip: bool,
     dark: Rgba<u8>,
     light: Rgba<u8>,
-    svgs: SVGForest,
 }
 
 impl BoardDrawer {
-    pub fn new(
-        flip: bool,
-        size: u32,
-        dark: [u8; 4],
-        light: [u8; 4],
-        pieces_path: &str,
-        font_path: &str,
-    ) -> Result<Self, DrawerError> {
-        let svgs = SVGForest::new(font_path, Some(pieces_path), None)?;
-
+    pub fn new(flip: bool, size: u32, dark: [u8; 4], light: [u8; 4]) -> Result<Self, DrawerError> {
         Ok(BoardDrawer {
             size,
             flip,
             dark: image::Rgba(dark),
             light: image::Rgba(light),
-            svgs,
         })
     }
 
@@ -79,7 +68,11 @@ impl BoardDrawer {
         ImageBuffer::from_pixel(self.square_size(), self.square_size(), self.light)
     }
 
-    pub fn draw_position_from_empty(&mut self, pieces: Pieces) -> Result<RgbaImage, DrawerError> {
+    pub fn draw_position_from_empty(
+        &mut self,
+        pieces: Pieces,
+        svgs: &SVGForest,
+    ) -> Result<RgbaImage, DrawerError> {
         log::debug!("Drawing initial board");
         let mut counter = 1;
         let mut column = ImageBuffer::from_fn(self.square_size(), self.size, |_, y| {
@@ -101,10 +94,18 @@ impl BoardDrawer {
 
         for (square, piece) in pieces {
             log::debug!("Initializing {:?} in {:?}", piece, square);
-            self.draw_piece(&square, &piece.role, piece.color, false, &mut board, None)?;
+            self.draw_piece(
+                &square,
+                &piece.role,
+                piece.color,
+                false,
+                &mut board,
+                None,
+                svgs,
+            )?;
         }
 
-        self.draw_ranks(2, 6, &mut board)?;
+        self.draw_ranks(2, 6, &mut board, svgs)?;
 
         if self.flip == true {
             imageops::flip_horizontal_in_place(&mut board);
@@ -119,10 +120,11 @@ impl BoardDrawer {
         from: u32,
         to: u32,
         img: &mut RgbaImage,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
         for n in from..to {
             let square = Square::new((n * 8) + (self.flip as u32 * 7));
-            self.draw_square(&square, img)?;
+            self.draw_square(&square, img, svgs)?;
         }
 
         Ok(())
@@ -133,6 +135,7 @@ impl BoardDrawer {
         _move: &Move,
         color: shakmaty::Color,
         img: &mut RgbaImage,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
         log::debug!("Drawing move: {:?}", _move);
         match _move {
@@ -143,40 +146,40 @@ impl BoardDrawer {
                 to,
                 promotion,
             } => {
-                self.draw_square(from, img)?;
+                self.draw_square(from, img, svgs)?;
                 let blank_to_square = if capture.is_some() { true } else { false };
 
                 if let Some(promoted) = promotion {
-                    self.draw_piece(to, promoted, color, blank_to_square, img, None)?;
+                    self.draw_piece(to, promoted, color, blank_to_square, img, None, svgs)?;
                 } else {
-                    self.draw_piece(to, role, color, blank_to_square, img, None)?;
+                    self.draw_piece(to, role, color, blank_to_square, img, None, svgs)?;
                 }
             }
             Move::EnPassant { from, to } => {
-                self.draw_square(from, img)?;
+                self.draw_square(from, img, svgs)?;
                 // Need to delete the pawn that was taken
                 // This pawn is in the same Rank as from
                 // And the same File as to
                 let taken_pawn = Square::from_coords(to.file(), from.rank());
-                self.draw_square(&taken_pawn, img)?;
+                self.draw_square(&taken_pawn, img, svgs)?;
 
-                self.draw_piece(to, &Role::Pawn, color, true, img, None)?;
+                self.draw_piece(to, &Role::Pawn, color, true, img, None, svgs)?;
             }
             Move::Castle { king, rook } => {
                 // King and Rook initial squares, e.g. E1 and H1 respectively.
                 // Need to calculate where the pieces end up before drawing.
                 let offset = if rook.file() > king.file() { 1 } else { -1 };
 
-                self.draw_square(king, img)?;
-                self.draw_square(rook, img)?;
+                self.draw_square(king, img, svgs)?;
+                self.draw_square(rook, img, svgs)?;
 
                 let rook_square = king.offset(offset * 1).unwrap();
                 let king_square = king.offset(offset * 2).unwrap();
-                self.draw_piece(&king_square, &Role::King, color, true, img, None)?;
-                self.draw_piece(&rook_square, &Role::Rook, color, true, img, None)?;
+                self.draw_piece(&king_square, &Role::King, color, true, img, None, svgs)?;
+                self.draw_piece(&rook_square, &Role::Rook, color, true, img, None, svgs)?;
             }
             Move::Put { role, to } => {
-                self.draw_piece(to, role, color, true, img, None)?;
+                self.draw_piece(to, role, color, true, img, None, svgs)?;
             }
         };
 
@@ -193,8 +196,17 @@ impl BoardDrawer {
         square: &Square,
         color: shakmaty::Color,
         img: &mut RgbaImage,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
-        self.draw_piece(square, &Role::King, color, true, img, Some("check"))
+        self.draw_piece(
+            square,
+            &Role::King,
+            color,
+            true,
+            img,
+            Some("check".to_string()),
+            svgs,
+        )
     }
 
     pub fn draw_win_king(
@@ -202,13 +214,27 @@ impl BoardDrawer {
         square: &Square,
         color: shakmaty::Color,
         img: &mut RgbaImage,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
-        self.draw_piece(square, &Role::King, color, true, img, Some("win"))
+        self.draw_piece(
+            square,
+            &Role::King,
+            color,
+            true,
+            img,
+            Some("win".to_string()),
+            svgs,
+        )
     }
 
-    pub fn draw_square(&mut self, square: &Square, img: &mut RgbaImage) -> Result<(), DrawerError> {
+    pub fn draw_square(
+        &mut self,
+        square: &Square,
+        img: &mut RgbaImage,
+        svgs: &SVGForest,
+    ) -> Result<(), DrawerError> {
         log::debug!("Drawing square: {}", square);
-        let pixmap = self.square_pixmap(self.square_size(), self.square_size(), square)?;
+        let pixmap = self.square_pixmap(self.square_size(), self.square_size(), square, svgs)?;
         let mut square_img = ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take())
             .ok_or(DrawerError::ImageTooBig {
                 image: format!("{}x{} square", self.square_size(), self.square_size()),
@@ -234,11 +260,12 @@ impl BoardDrawer {
         color: shakmaty::Color,
         blank_target: bool,
         img: &mut RgbaImage,
-        additional: Option<&str>,
+        additional: Option<String>,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
         log::debug!("Drawing {:?} {:?} on {:?}", color, role, square);
         if blank_target {
-            self.draw_square(square, img)?;
+            self.draw_square(square, img, svgs)?;
         }
 
         let x = self.square_size() * u32::from(square.file());
@@ -247,7 +274,7 @@ impl BoardDrawer {
 
         let height = self.square_size();
         let mut resized_piece =
-            self.piece_image(color, square, role, height, height, additional)?;
+            self.piece_image(color, square, role, height, height, additional, svgs)?;
 
         if self.flip == true {
             imageops::flip_vertical_in_place(&mut resized_piece);
@@ -266,12 +293,18 @@ impl BoardDrawer {
         role: &'a Role,
         height: u32,
         width: u32,
-        additional: Option<&str>,
+        additional: Option<String>,
+        svgs: &SVGForest,
     ) -> Result<RgbaImage, DrawerError> {
         let fit_to = FitTo::Height(height);
-        let rtree = self.svgs.piece_tree(role, &piece_color, additional)?;
+        let piece_tree = SVGTree::Piece {
+            role: *role,
+            color: piece_color,
+            additional: additional,
+        };
+        let rtree = svgs.load_svg_tree(&piece_tree)?;
         log::debug!("{:?}", rtree.svg_node());
-        let mut pixmap = self.square_pixmap(height, width, square)?;
+        let mut pixmap = self.square_pixmap(height, width, square, svgs)?;
         resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
             svg: format!("{}_{}.svg", piece_color.char(), role.char()),
         })?;
@@ -291,6 +324,7 @@ impl BoardDrawer {
         width: u32,
         x: u32,
         y: u32,
+        svgs: &SVGForest,
     ) -> Result<Pixmap, DrawerError> {
         log::debug!("Generating svg text: {}", coordinate);
         let mut pixmap = Pixmap::new(width, height).unwrap();
@@ -304,17 +338,19 @@ impl BoardDrawer {
                 (self.light, self.dark)
             }
         };
-        let rtree = self.svgs.str_svg_tree(
-            &coordinate.to_string(),
-            coord_color,
-            square_color,
+        let coordinate_tree = SVGTree::Str {
+            s: coordinate.to_string(),
+            string_color: coord_color,
+            background_color: square_color,
             height,
             width,
             x,
             y,
-            FontWeight::Bold,
-            FontSize::Unit(height as f32, "px".to_string()),
-        )?;
+            font_weight: FontWeight::Bold,
+            font_size: FontSize::Unit(height as f32, "px".to_string()),
+        };
+
+        let rtree = svgs.load_svg_tree(&coordinate_tree)?;
 
         let fit_to = FitTo::Height(height);
         resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
@@ -329,6 +365,7 @@ impl BoardDrawer {
         height: u32,
         width: u32,
         square: &Square,
+        svgs: &SVGForest,
     ) -> Result<Pixmap, DrawerError> {
         let mut pixmap = Pixmap::new(width, height).unwrap();
         match square.is_dark() {
@@ -346,6 +383,7 @@ impl BoardDrawer {
                     self.size / 32,
                     5,
                     75,
+                    svgs,
                 )?;
                 let paint = PixmapPaint::default();
                 let transform = Transform::default();
@@ -369,6 +407,7 @@ impl BoardDrawer {
                     self.size / 32,
                     5,
                     75,
+                    svgs,
                 )?;
                 let paint = PixmapPaint::default();
                 let transform = Transform::default();
@@ -388,20 +427,23 @@ impl BoardDrawer {
         s: &str,
         str_color: Rgba<u8>,
         background_color: Rgba<u8>,
+        svgs: &SVGForest,
     ) -> Result<Pixmap, DrawerError> {
         let mut pixmap = Pixmap::new(width, height).unwrap();
 
-        let rtree = self.svgs.str_svg_tree(
-            &s.to_string(),
-            str_color,
-            background_color,
+        let str_tree = SVGTree::Str {
+            s: s.to_string(),
+            string_color: str_color,
+            background_color: background_color,
             height,
             width,
             x,
             y,
-            FontWeight::Bold,
-            FontSize::Unit(height as f32 * 0.5, "px".to_string()),
-        )?;
+            font_weight: FontWeight::Bold,
+            font_size: FontSize::Unit(height as f32 * 0.5, "px".to_string()),
+        };
+
+        let rtree = svgs.load_svg_tree(&str_tree)?;
 
         let fit_to = FitTo::Height(height);
         resvg::render(&rtree, fit_to, pixmap.as_mut())
@@ -416,6 +458,7 @@ impl BoardDrawer {
         player_color: shakmaty::Color,
         bottom: bool,
         img: &mut RgbaImage,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
         let mut pixmap = Pixmap::new(self.size, self.square_size()).unwrap();
         let (color, background_color, y) = match player_color {
@@ -437,6 +480,7 @@ impl BoardDrawer {
             player,
             color,
             background_color,
+            svgs,
         )?;
 
         let paint = PixmapPaint::default();
@@ -466,6 +510,7 @@ impl BoardDrawer {
         player_color: shakmaty::Color,
         bottom: bool,
         img: &mut RgbaImage,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
         let mut pixmap = Pixmap::new(self.square_size() * 2, self.square_size() * 3 / 4).unwrap();
         let (color, background_color) = match player_color {
@@ -487,6 +532,7 @@ impl BoardDrawer {
             clock,
             color,
             background_color,
+            svgs,
         )?;
 
         let paint = PixmapPaint::default();
@@ -526,9 +572,10 @@ impl BoardDrawer {
         white_clock: &str,
         black_clock: &str,
         img: &mut RgbaImage,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
-        self.draw_player_clock(white_clock, shakmaty::Color::White, !self.flip, img)?;
-        self.draw_player_clock(black_clock, shakmaty::Color::Black, self.flip, img)?;
+        self.draw_player_clock(white_clock, shakmaty::Color::White, !self.flip, img, svgs)?;
+        self.draw_player_clock(black_clock, shakmaty::Color::Black, self.flip, img, svgs)?;
 
         Ok(())
     }
@@ -538,9 +585,10 @@ impl BoardDrawer {
         white_player: &str,
         black_player: &str,
         img: &mut RgbaImage,
+        svgs: &SVGForest,
     ) -> Result<(), DrawerError> {
-        self.draw_player_bar(white_player, shakmaty::Color::White, !self.flip, img)?;
-        self.draw_player_bar(black_player, shakmaty::Color::Black, self.flip, img)?;
+        self.draw_player_bar(white_player, shakmaty::Color::White, !self.flip, img, svgs)?;
+        self.draw_player_bar(black_player, shakmaty::Color::Black, self.flip, img, svgs)?;
 
         Ok(())
     }
@@ -549,13 +597,13 @@ impl BoardDrawer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::drawer::SVGFontConfig;
 
     #[test]
     fn test_square_image() {
         let dark: [u8; 4] = [249, 100, 100, 1];
         let light: [u8; 4] = [255, 253, 253, 1];
-        let mut drawer =
-            BoardDrawer::new(false, 80, dark, light, "some/path/", "roboto.ttf").unwrap();
+        let mut drawer = BoardDrawer::new(false, 80, dark, light).unwrap();
 
         let square = Square::new(0); // A1 is dark
         let expected = ImageBuffer::from_pixel(10, 10, image::Rgba(dark));
@@ -570,7 +618,7 @@ mod tests {
     fn test_sizes() {
         let dark: [u8; 4] = [249, 100, 100, 1];
         let light: [u8; 4] = [255, 253, 253, 1];
-        let drawer = BoardDrawer::new(false, 80, dark, light, "some/path/", "roboto.ttf").unwrap();
+        let drawer = BoardDrawer::new(false, 80, dark, light).unwrap();
 
         assert_eq!(drawer.size(), 80);
         assert_eq!(drawer.square_size(), 10);
@@ -580,18 +628,23 @@ mod tests {
     fn test_square_pixmap() {
         let dark: [u8; 4] = [249, 100, 100, 1];
         let light: [u8; 4] = [255, 253, 253, 1];
-        let mut drawer =
-            BoardDrawer::new(false, 80, dark, light, "some/path/", "roboto.ttf").unwrap();
+        let mut drawer = BoardDrawer::new(false, 80, dark, light).unwrap();
 
         let mut pixmap = Pixmap::new(10, 10).unwrap();
         let square = Square::new(9); // B2 is dark
         pixmap.fill(tiny_skia::Color::from_rgba8(249, 100, 100, 255));
-        let result = drawer.square_pixmap(10, 10, &square).unwrap();
+
+        let config = SVGFontConfig::default();
+        let svgs = SVGForest::new(config, "svgs", "cburnett", "terminations").unwrap();
+        let result = drawer.square_pixmap(10, 10, &square, &svgs).unwrap();
         assert_eq!(pixmap, result);
 
         let square = Square::new(10); // C2 is dark
         pixmap.fill(tiny_skia::Color::from_rgba8(255, 253, 253, 255));
-        let result = drawer.square_pixmap(10, 10, &square).unwrap();
+
+        let config = SVGFontConfig::default();
+        let svgs = SVGForest::new(config, "svgs", "cburnett", "terminations").unwrap();
+        let result = drawer.square_pixmap(10, 10, &square, &svgs).unwrap();
         assert_eq!(pixmap, result);
     }
 }

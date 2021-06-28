@@ -6,6 +6,6 @@ pub mod utils;
 
 pub use board::BoardDrawer;
 pub use error::DrawerError;
-pub use svgs::{FontSize, FontWeight, SVGForest};
+pub use svgs::{FontSize, FontWeight, SVGFontConfig, SVGForest};
 pub use termination::{TerminationDrawer, TerminationReason};
 pub use utils::PieceInBoard;
