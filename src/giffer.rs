@@ -543,7 +543,9 @@ impl Visitor for PGNGiffer {
             let mut board = self.drawer.image_buffer();
             for (square, role, color) in self.to_clear.drain(..) {
                 self.drawer
-                    .draw_piece(&square, &role, color, false, &mut board, None, &self.svgs)
+                    .draw_piece(
+                        &square, &role, color, false, &mut board, None, &self.svgs, false,
+                    )
                     .expect(&format!("Failed to clear piece"));
             }
 
@@ -561,8 +563,9 @@ impl Visitor for PGNGiffer {
                     .board()
                     .king_of(color)
                     .expect("King square should exist");
+                let king_piece = PieceInBoard::new_king(king_square, color);
                 self.drawer
-                    .draw_checked_king(&king_square, color, &mut board, &self.svgs)
+                    .draw_checked_king(king_piece, &mut board, &self.svgs)
                     .expect(&format!("Failed to draw checked king: {}", king_square));
 
                 let to_be_cleared = (king_square, Role::King, color);
@@ -653,7 +656,7 @@ impl Visitor for PGNGiffer {
                 };
                 let termination_reason = TerminationReason::from_outcome(o, Some(reason));
 
-                let (winner_king, loser_king) = match o {
+                let (mut winner_king, mut loser_king) = match o {
                     Outcome::Draw => {
                         // Doesn't really matter which king is which, since in draw there is no
                         // winner or loser.
@@ -695,6 +698,12 @@ impl Visitor for PGNGiffer {
                         (winner_king, loser_king)
                     }
                 };
+
+                if self.drawer.flip() {
+                    // This should be moved to the drawer
+                    winner_king.flip_both();
+                    loser_king.flip_both();
+                }
 
                 log::debug!(
                     "Drawing termination: {:?}, {:?}, {:?}, {:?}",

@@ -9,12 +9,23 @@ pub struct PieceInBoard {
 }
 
 impl PieceInBoard {
+    /// Create a new King in the board
     pub fn new_king(square: shakmaty::Square, color: shakmaty::Color) -> Self {
         PieceInBoard {
             square,
             color,
             role: Role::King,
         }
+    }
+
+    /// Flip at the h1-a8 diagonal in place
+    pub fn flip_anti_diagonal(&mut self) {
+        self.square = self.square.flip_anti_diagonal();
+    }
+
+    /// Flip vertically and horizontally
+    pub fn flip_both(&mut self) {
+        self.square = self.square.flip_vertical().flip_horizontal();
     }
 }
 
