@@ -7,6 +7,8 @@ use super::error::DrawerError;
 use super::svgs::{FontSize, FontWeight, SVGForest, SVGTree};
 use super::utils;
 
+use crate::config::Color;
+
 pub struct BoardDrawer {
     size: u32,
     flip: bool,
@@ -15,12 +17,12 @@ pub struct BoardDrawer {
 }
 
 impl BoardDrawer {
-    pub fn new(flip: bool, size: u32, dark: [u8; 4], light: [u8; 4]) -> Result<Self, DrawerError> {
+    pub fn new(flip: bool, size: u32, dark: Color, light: Color) -> Result<Self, DrawerError> {
         Ok(BoardDrawer {
             size,
             flip,
-            dark: image::Rgba(dark),
-            light: image::Rgba(light),
+            dark: image::Rgba(dark.to_arr()),
+            light: image::Rgba(light.to_arr()),
         })
     }
 

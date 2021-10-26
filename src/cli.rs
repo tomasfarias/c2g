@@ -1,12 +1,16 @@
-use std::convert::TryInto;
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::io;
+use std::str::FromStr;
 
 use clap::{App, Arg};
 use pgn_reader::BufferedReader;
 
+use crate::config::{Colors, Config};
+use crate::delay::{Delay, Delays};
 use crate::error::C2GError;
-use crate::giffer::{Delay, PGNGiffer};
+use crate::giffer::PGNGiffer;
+use crate::style::{StyleComponent, StyleComponents};
 
 pub struct Chess2Gif {
     pgn: Option<String>,
@@ -77,16 +81,40 @@ impl Chess2Gif {
                     .help("Delay for the last frame in ms, before the GIF loops back around"),
             )
             .arg(
-                Arg::with_name("no-player-bars")
+                Arg::with_name("style")
                     .long("no-player-bars")
                     .takes_value(false)
-                    .help("Disable player bars at the top and bottom of the GIF"),
-            )
-            .arg(
-                Arg::with_name("no-terminations")
-                    .long("no-terminations")
-                    .takes_value(false)
-                    .help("Do not draw termination circles at the end of the GIF"),
+                    .overrides_with("plain")
+                    .validator(|val| {
+                        let mut invalid_vals = val.split(',').filter(|style| {
+                            !&[
+                                "full", "plain", "player-bars", "ranks", "files", "coordinates", "terminations",
+                            ]
+                                .contains(style)
+                        });
+                        if let Some(invalid) = invalid_vals.next() {
+                            Err(C2GError::UnknownStyle(invalid.to_string()).to_string())
+                        } else {
+                            Ok(())
+                        }
+                    })
+                    .help(
+                        "Comma-separated list of style elements to display \
+                         (*full*, plain, player-bars, ranks, files, terminations).",
+                    )
+                    .long_help(
+                        "Configure which elements (ranks, files, player-bars, ...)
+                         to display with the game GIF. The argument is a comma-separated \
+                         list of components to display (e.g. 'ranks,files') or a \
+                         pre-defined style (e.g. 'full').
+                         Possible values:\n\n  \
+                         * full: enables all available elements (default).\n  \
+                         * plain: disables all available elements.\n  \
+                         * ranks: show rank numbers.\n  \
+                         * files: show file lettrs.\n  \
+                         * coordintes: show both ranks and files. Same as 'ranks,files'.\n  \
+                         * player-bars: draw bars with player information like names and ELO.",
+                    ),
             )
             .arg(
                 Arg::with_name("dark")
@@ -183,52 +211,69 @@ impl Chess2Gif {
 
         let output = matches.value_of("output").expect("Output must be defined");
 
-        let dark: [u8; 4] = clap::values_t_or_exit!(matches, "dark", u8)
-            .try_into()
-            .expect("Invalid dark color");
-        let light: [u8; 4] = clap::values_t_or_exit!(matches, "light", u8)
-            .try_into()
-            .expect("Invalid light color");
-
-        let flip = matches.is_present("flip");
+        let dark = matches
+            .value_of("dark")
+            .expect("Dark must be defined or default value is used");
+        let light = matches
+            .value_of("light")
+            .expect("Light must be defined or default value is used");
 
         let delay = match matches.value_of("delay") {
-            Some("real") => Delay::Real,
-            Some(s) => Delay::Duration(s.parse::<u16>().expect("Invalid delay value")),
+            Some(s) => Delay::from_str(s).expect("Invalid delay value"),
             None => panic!("Delay must be defined as it has a default value"),
         };
 
         let last_frame_delay = match matches.value_of("last-frame-delay") {
-            Some(s) => s.parse::<u16>().expect("Invalid last frame delay value"),
+            Some(s) => Delay::from_str(s).expect("Invalid last frame delay value"),
             None => panic!("Last frame delay must be defined as it has a default value"),
         };
 
         let first_frame_delay = match matches.value_of("first-frame-delay") {
-            Some(s) => s.parse::<u16>().expect("Invalid last frame delay value"),
-            None => panic!("Last frame delay must be defined as it has a default value"),
+            Some(s) => Delay::from_str(s).expect("Invalid first frame delay value"),
+            None => panic!("First frame delay must be defined as it has a default value"),
         };
 
-        let no_player_bars = matches.is_present("no-player-bars");
-        let no_terminations = matches.is_present("no-terminations");
+        let flip = matches.is_present("flip");
+        let styles = if matches.is_present("plain") {
+            [StyleComponent::Plain].iter().cloned().collect()
+        } else {
+            matches
+                .value_of("style")
+                .map(|styles| {
+                    styles
+                        .split(',')
+                        .map(|style| style.parse::<StyleComponent>())
+                        .filter_map(|style| style.ok())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_else(|| vec![StyleComponent::Full])
+                .into_iter()
+                .map(|style| style.components())
+                .fold(HashSet::new(), |mut acc, components| {
+                    acc.extend(components.iter().cloned());
+                    acc
+                })
+        };
+        let style_components = StyleComponents(styles);
+        let colors = Colors::from_strs(dark, light)?;
+        let delays = Delays::new(&delay, &first_frame_delay, &last_frame_delay);
+
+        let config = Config {
+            output_path: output.to_string(),
+            svgs_path: svgs_path.to_string(),
+            font_path: font_path.to_string(),
+            font_family: font_family.to_string(),
+            pieces_family: pieces.to_string(),
+            size,
+            colors,
+            flip,
+            delays,
+            style_components,
+        };
 
         Ok(Chess2Gif {
             pgn,
-            giffer: PGNGiffer::new(
-                svgs_path,
-                font_path.to_string(),
-                Some(font_family.to_string()),
-                pieces,
-                flip,
-                !no_player_bars,
-                !no_terminations,
-                size,
-                output,
-                delay,
-                first_frame_delay,
-                last_frame_delay,
-                dark,
-                light,
-            )?,
+            giffer: PGNGiffer::new(config)?,
         })
     }
 

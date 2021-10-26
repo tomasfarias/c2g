@@ -11,6 +11,8 @@ use regex::Regex;
 use shakmaty::{Chess, Color, Position, Role, Setup, Square};
 use thiserror::Error;
 
+use crate::config::Config;
+use crate::delay::Delay;
 use crate::drawer::{
     BoardDrawer, DrawerError, PieceInBoard, SVGFontConfig, SVGForest, TerminationDrawer,
     TerminationReason,
@@ -298,12 +300,6 @@ impl GameClocks {
     }
 }
 
-/// Represents the delays between GIF frames, which can be either a duration in ms, or real time given by %clk comments in PGN headers.
-pub enum Delay {
-    Duration(u16),
-    Real,
-}
-
 #[derive(Error, Debug)]
 pub enum GifferError {
     #[error(transparent)]
@@ -326,12 +322,7 @@ pub struct PGNGiffer {
     drawer: BoardDrawer,
     termination_drawer: TerminationDrawer,
     position: Chess,
-    output_path: String,
-    delay: Delay,
-    player_bars: bool,
-    terminations: bool,
-    last_frame_delay: u16,
-    first_frame_delay: u16,
+    config: Config,
     termination: Option<String>,
     players: Players,
     boards: Vec<RgbaImage>,
@@ -341,52 +332,42 @@ pub struct PGNGiffer {
 }
 
 impl PGNGiffer {
-    pub fn new(
-        svgs_path: &str,
-        font_path: String,
-        font_family: Option<String>,
-        pieces: &str,
-        flip: bool,
-        player_bars: bool,
-        terminations: bool,
-        board_size: u32,
-        output_path: &str,
-        delay: Delay,
-        first_frame_delay: u16,
-        last_frame_delay: u16,
-        dark: [u8; 4],
-        light: [u8; 4],
-    ) -> Result<Self, GifferError> {
-        let drawer = BoardDrawer::new(flip, board_size as u32, dark, light)
-            .map_err(|source| GifferError::DrawerError { source })?;
-        let circle_size = board_size / 8 / 3;
+    pub fn new(config: Config) -> Result<Self, GifferError> {
+        let drawer = BoardDrawer::new(
+            config.flip,
+            config.size,
+            config.colors.dark.clone(),
+            config.colors.light.clone(),
+        )
+        .map_err(|source| GifferError::DrawerError { source })?;
+        let circle_size = config.size / 8 / 3;
         let termination_drawer = TerminationDrawer::new(circle_size as u32, circle_size as u32)
             .map_err(|source| GifferError::DrawerError { source })?;
 
         let svg_font_config = SVGFontConfig {
-            font_path,
-            font_family,
+            font_path: config.font_path.clone(),
+            font_family: Some(config.font_family.clone()),
             ..Default::default()
         };
 
-        let svgs = SVGForest::new(svg_font_config, svgs_path, pieces, "terminations")?;
+        let svgs = SVGForest::new(
+            svg_font_config,
+            &config.svgs_path,
+            &config.pieces_family,
+            "terminations",
+        )?;
 
         Ok(PGNGiffer {
             drawer,
             termination_drawer,
             position: Chess::default(),
-            output_path: output_path.to_owned(),
-            player_bars,
-            terminations,
-            delay,
-            first_frame_delay,
-            last_frame_delay,
+            config: config,
             termination: None,
             players: Players::default(),
             boards: Vec::new(),
             clocks: GameClocks::default(),
             to_clear: Vec::new(),
-            svgs: svgs,
+            svgs,
         })
     }
 
@@ -395,7 +376,7 @@ impl PGNGiffer {
         width: u16,
         height: u16,
     ) -> Result<Encoder<BufWriter<fs::File>>, GifferError> {
-        let file = fs::File::create(&self.output_path)
+        let file = fs::File::create(&self.config.output_path)
             .map_err(|source| GifferError::CreateOutput { source })?;
         let buffer = BufWriter::with_capacity(1000, file);
 
@@ -515,7 +496,7 @@ impl Visitor for PGNGiffer {
     /// Check if we managed to parse players and adjust the initial board
     fn end_headers(&mut self) -> Skip {
         log::debug!("Players: {}", self.players.exist());
-        if self.players.exist() && self.player_bars == true {
+        if self.players.exist() && self.config.style_components.player_bars() == true {
             log::debug!("Adding player bars to first board");
             let board = self.boards.pop().expect("Initial board should exist");
             let mut new_board = self.drawer.add_player_bar_space(board);
@@ -572,7 +553,7 @@ impl Visitor for PGNGiffer {
                 self.to_clear.push(to_be_cleared);
             };
 
-            if self.players.exist() && self.player_bars == true {
+            if self.players.exist() && self.config.style_components.player_bars() == true {
                 log::debug!("Adding player bars");
                 let mut new_board = self.drawer.add_player_bar_space(board);
                 log::debug!(
@@ -622,7 +603,7 @@ impl Visitor for PGNGiffer {
 
     /// Check the outcome of the game to draw the appropiate termination circle
     fn outcome(&mut self, outcome: Option<Outcome>) {
-        if !self.terminations {
+        if !self.config.style_components.terminations() {
             return;
         }
 
@@ -729,18 +710,19 @@ impl Visitor for PGNGiffer {
     }
 
     /// Iterates over boards collected for every move to encode GIF frames for each move.
-    /// Assigns delays to each frame based on self.delay and self.last_frame_multiplier.
+    /// Assigns delays to each frame based on self.config.delay and self.last_frame_multiplier.
     fn end_game(&mut self) -> Self::Result {
         let total_frames = self.boards.len();
-        let (height, width) = if self.players.exist() && self.player_bars == true {
-            let bar_size = self.drawer.square_size() * 2;
-            (
-                (self.drawer.size() + bar_size) as u16,
-                self.drawer.size() as u16,
-            )
-        } else {
-            (self.drawer.size() as u16, self.drawer.size() as u16)
-        };
+        let (height, width) =
+            if self.players.exist() && self.config.style_components.player_bars() == true {
+                let bar_size = self.drawer.square_size() * 2;
+                (
+                    (self.drawer.size() + bar_size) as u16,
+                    self.drawer.size() as u16,
+                )
+            } else {
+                (self.drawer.size() as u16, self.drawer.size() as u16)
+            };
         log::debug!(
             "Size: {}, width: {}, height: {}",
             self.drawer.size(),
@@ -766,7 +748,7 @@ impl Visitor for PGNGiffer {
             if white_clock.is_some()
                 && black_clock.is_some()
                 && self.players.exist()
-                && self.player_bars == true
+                && self.config.style_components.player_bars() == true
             {
                 self.drawer.draw_player_clocks(
                     &white_clock.unwrap().to_string(),
@@ -781,11 +763,21 @@ impl Visitor for PGNGiffer {
             log::debug!("Calculating delay for turn: {}", turn);
             if n == (total_frames - 1) {
                 log::debug!("LAST FRAME");
-                frame.delay = self.last_frame_delay / 10;
+                frame.delay = self
+                    .config
+                    .delays
+                    .last_frame_delay()
+                    .expect("Last frame delay not defined")
+                    / 10;
             } else if n == 0 || n == 1 {
-                frame.delay = self.first_frame_delay / 10;
+                frame.delay = self
+                    .config
+                    .delays
+                    .first_frame_delay()
+                    .expect("First frame delay not defined")
+                    / 10;
             } else {
-                match self.delay {
+                match self.config.delays.frame {
                     Delay::Duration(d) => {
                         frame.delay = d / 10;
                     }
@@ -793,18 +785,31 @@ impl Visitor for PGNGiffer {
                         if n & 1 != 0 {
                             frame.delay = match self.clocks.turn_delay(turn, Color::Black) {
                                 Some(d) => d / 10,
-                                None => self.first_frame_delay / 10, // First move, no previous clock
+                                // First move, no previous clock
+                                None => {
+                                    self.config
+                                        .delays
+                                        .first_frame_delay()
+                                        .expect("First frame delay not defined")
+                                        / 10
+                                }
                             };
                         } else {
                             frame.delay = match self.clocks.turn_delay(turn, Color::White) {
                                 Some(d) => d / 10,
-                                None => self.first_frame_delay / 10, // First move, no previous clock
+                                // First move, no previous clock
+                                None => {
+                                    self.config
+                                        .delays
+                                        .first_frame_delay()
+                                        .expect("First frame delay not defined")
+                                        / 10
+                                }
                             };
                         }
                     }
                 }
             }
-
             log::debug!("Frame delay set to: {}", frame.delay);
             log::debug!("Encoding frame for board number: {}", n);
             encoder

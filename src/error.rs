@@ -19,6 +19,12 @@ pub enum C2GError {
     },
     #[error("Size is not divisible by 8")]
     NotDivisibleBy8,
+    #[error("Unknown style {0}")]
+    UnknownStyle(String),
+    #[error("Unable to parse duration {0}")]
+    CannotParseDuration(String),
+    #[error("Unable to parse RGBA color {0}")]
+    CannotParseColor(String),
     #[error("Clap failed")]
     ClapError {
         #[from]
@@ -40,6 +46,12 @@ impl C2GError {
             }
             C2GError::NotDivisibleBy8 => {
                 writeln!(&mut stderr(), "{}", self).ok();
+                process::exit(1);
+            }
+            C2GError::UnknownStyle(s)
+            | C2GError::CannotParseDuration(s)
+            | C2GError::CannotParseColor(s) => {
+                writeln!(&mut stderr(), "{}", s).ok();
                 process::exit(1);
             }
         }
