@@ -6,7 +6,7 @@ use crate::error::C2GError;
 use crate::style::StyleComponents;
 
 #[derive(Debug, Clone)]
-pub struct Color([u8; 4]);
+pub struct Color(pub [u8; 4]);
 
 impl FromStr for Color {
     type Err = C2GError;

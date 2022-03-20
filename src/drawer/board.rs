@@ -633,23 +633,25 @@ mod tests {
 
     #[test]
     fn test_square_image() {
-        let dark: [u8; 4] = [249, 100, 100, 1];
-        let light: [u8; 4] = [255, 253, 253, 1];
+        let dark_arr: [u8; 4] = [249, 100, 100, 1];
+        let light_arr: [u8; 4] = [249, 100, 100, 1];
+        let dark: Color = Color(dark_arr);
+        let light: Color = Color(light_arr);
         let mut drawer = BoardDrawer::new(false, 80, dark, light).unwrap();
 
         let square = Square::new(0); // A1 is dark
-        let expected = ImageBuffer::from_pixel(10, 10, image::Rgba(dark));
+        let expected = ImageBuffer::from_pixel(10, 10, image::Rgba(dark_arr));
         assert_eq!(expected, drawer.square_image(&square));
 
         let square = Square::new(7); // H1 is light
-        let expected = ImageBuffer::from_pixel(10, 10, image::Rgba(light));
+        let expected = ImageBuffer::from_pixel(10, 10, image::Rgba(light_arr));
         assert_eq!(expected, drawer.square_image(&square));
     }
 
     #[test]
     fn test_sizes() {
-        let dark: [u8; 4] = [249, 100, 100, 1];
-        let light: [u8; 4] = [255, 253, 253, 1];
+        let dark: Color = Color([249, 100, 100, 1]);
+        let light: Color = Color([255, 253, 253, 1]);
         let drawer = BoardDrawer::new(false, 80, dark, light).unwrap();
 
         assert_eq!(drawer.size(), 80);
@@ -658,8 +660,8 @@ mod tests {
 
     #[test]
     fn test_square_pixmap() {
-        let dark: [u8; 4] = [249, 100, 100, 1];
-        let light: [u8; 4] = [255, 253, 253, 1];
+        let dark: Color = Color([249, 100, 100, 1]);
+        let light: Color = Color([255, 253, 253, 1]);
         let mut drawer = BoardDrawer::new(false, 80, dark, light).unwrap();
 
         let mut pixmap = Pixmap::new(10, 10).unwrap();

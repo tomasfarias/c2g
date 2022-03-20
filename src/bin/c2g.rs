@@ -176,7 +176,7 @@ impl Chess2GifCli {
             return Err(C2GError::NotDivisibleBy8);
         }
 
-        let pgn = Self::pgn_or_read_stdin(matches.value_of("PGN"))?;
+        let pgn = Self::pgn_or_read_stdin(matches.value_of("PGN"), &mut io::stdin())?;
 
         let svgs_path = if cfg!(feature = "include-svgs") {
             "svgs/"
@@ -269,13 +269,12 @@ impl Chess2GifCli {
         Ok(Self { app })
     }
 
-    fn pgn_or_read_stdin(pgn: Option<&str>) -> Result<String, C2GError> {
+    fn pgn_or_read_stdin(pgn: Option<&str>, mut input: impl Read) -> Result<String, C2GError> {
         if let Some(s) = pgn {
             Ok(s.to_owned())
         } else {
             let mut buffer = String::new();
-            let mut stdin = io::stdin();
-            stdin.read_to_string(&mut buffer)?;
+            input.read_to_string(&mut buffer)?;
 
             Ok(buffer)
         }
@@ -291,4 +290,55 @@ fn main() -> Result<(), C2GError> {
 
     let c2g = Chess2GifCli::new();
     c2g.run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pgn_or_read_stdin_with_none_pgn() -> Result<(), String> {
+        use std::io::Cursor;
+
+        let buff = Cursor::new("test string");
+        let pgn = None;
+        let result = Chess2GifCli::pgn_or_read_stdin(pgn, buff);
+
+        match result {
+            Ok(s) => {
+                if s == "test string".to_string() {
+                    Ok(())
+                } else {
+                    Err(String::from(
+                        "String read from buffer does not equal test string",
+                    ))
+                }
+            }
+            Err(_) => Err(String::from("Error reading buffer")),
+        }
+    }
+
+    #[test]
+    fn test_pgn_or_read_stdin() -> Result<(), String> {
+        use std::io::Cursor;
+
+        let buff = Cursor::new("invalid");
+        let pgn = Some("test string");
+        let result = Chess2GifCli::pgn_or_read_stdin(pgn, buff);
+
+        match result {
+            Ok(s) => {
+                if s == "test string".to_string() {
+                    Ok(())
+                } else if s == "invalid".to_string() {
+                    Err(String::from("String read from buffer when pgn not none"))
+                } else {
+                    Err(String::from(
+                        "String read from buffer does not equal test string",
+                    ))
+                }
+            }
+            Err(_) => Err(String::from("Error reading buffer")),
+        }
+    }
 }
