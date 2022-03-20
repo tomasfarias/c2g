@@ -86,7 +86,7 @@ jobs:
       - name: Docker buildx and push
         run: |
           docker buildx build \
-            --platform linux/386,linux/amd64,linux/arm/v6,linux/arm/v7,linux/arm64 \
+            --platform linux/386,linux/amd64,linux/arm/v7,linux/arm64 \
             --output "type=image,push=true" \
             --tag tomasfarias/c2g:latest \
             --tag tomasfarias/c2g:${{ steps.tagName.outputs.tag }} \
@@ -109,4 +109,4 @@ jobs:
       - name: Publish
         run: cargo publish
         env:
-          CARGO_REGISTRY__TOKEN: ${{ secrets.CRATES_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
