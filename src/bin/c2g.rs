@@ -11,6 +11,7 @@ use c2g::delay::{Delay, Delays};
 use c2g::error::C2GError;
 use c2g::style::{StyleComponent, StyleComponents};
 
+#[derive(Debug)]
 pub struct Chess2GifCli {
     app: Chess2Gif,
 }
@@ -26,7 +27,7 @@ impl Chess2GifCli {
         T: Into<OsString> + Clone,
     {
         let app = App::new("Chess to GIF")
-            .version("0.6.1")
+            .version("0.7.0")
             .author("Tomas Farias <tomas@tomasfarias.dev>")
             .about("Turns a PGN chess game into a GIF")
             .arg(
@@ -119,9 +120,7 @@ impl Chess2GifCli {
                     .short("d")
                     .long("dark")
                     .takes_value(true)
-                    .number_of_values(4)
                     .default_value("118,150,86,1")
-                    .require_delimiter(true)
                     .multiple(false)
                     .help("RGBA color to use for the dark squares"),
             )
@@ -130,9 +129,7 @@ impl Chess2GifCli {
                     .short("l")
                     .long("light")
                     .takes_value(true)
-                    .number_of_values(4)
                     .default_value("238,238,210,1")
-                    .require_delimiter(true)
                     .multiple(false)
                     .help("RGBA color to use for the light squares"),
             )
@@ -207,6 +204,8 @@ impl Chess2GifCli {
             .value_of("light")
             .expect("Light must be defined or default value is used");
 
+        let colors = Colors::from_strs(dark, light)?;
+
         let delay = match matches.value_of("delay") {
             Some(s) => Delay::from_str(s).expect("Invalid delay value"),
             None => panic!("Delay must be defined as it has a default value"),
@@ -223,6 +222,7 @@ impl Chess2GifCli {
         };
 
         let flip = matches.is_present("flip");
+
         let styles = if matches.is_present("plain") {
             [StyleComponent::Plain].iter().cloned().collect()
         } else {
@@ -243,8 +243,9 @@ impl Chess2GifCli {
                     acc
                 })
         };
+
         let style_components = StyleComponents(styles);
-        let colors = Colors::from_strs(dark, light)?;
+
         let delays = Delays::new(&delay, &first_frame_delay, &last_frame_delay);
 
         let config = Config {
@@ -261,6 +262,7 @@ impl Chess2GifCli {
         };
 
         let app = Chess2Gif::new(pgn, config)?;
+
         Ok(Self { app })
     }
 
@@ -270,7 +272,6 @@ impl Chess2GifCli {
         } else {
             let mut buffer = String::new();
             input.read_to_string(&mut buffer)?;
-
             Ok(buffer)
         }
     }

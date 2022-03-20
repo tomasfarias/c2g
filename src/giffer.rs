@@ -8,7 +8,7 @@ use gif::{self, Encoder, Frame, Repeat};
 use image::RgbaImage;
 use pgn_reader::{Outcome, RawComment, RawHeader, SanPlus, Skip, Visitor};
 use regex::Regex;
-use shakmaty::{Chess, Color, Position, Role, Setup, Square};
+use shakmaty::{Chess, Color, Position, Role, Square};
 use thiserror::Error;
 
 use crate::config::Config;
@@ -318,6 +318,7 @@ pub enum GifferError {
     },
 }
 
+#[derive(Debug)]
 pub struct PGNGiffer {
     drawer: BoardDrawer,
     termination_drawer: TerminationDrawer,
@@ -395,10 +396,9 @@ impl Visitor for PGNGiffer {
 
     fn begin_game(&mut self) {
         log::info!("Rendering initial board");
-        let pieces = self.position.board().pieces();
         let board = self
             .drawer
-            .draw_position_from_empty(pieces, &self.svgs)
+            .draw_initial_position(&self.svgs)
             .expect(&format!(
                 "Failed to draw initial position: {}",
                 self.position.board()

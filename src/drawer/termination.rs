@@ -3,7 +3,7 @@ use std::fmt;
 use image::{imageops, ImageBuffer, RgbaImage};
 use pgn_reader::Outcome;
 use shakmaty;
-use tiny_skia::{self, Pixmap};
+use tiny_skia::{self, Pixmap, Transform};
 use usvg::FitTo;
 
 use super::error::DrawerError;
@@ -77,6 +77,7 @@ impl fmt::Display for TerminationReason {
 }
 
 /// Draws highlights to indicate the game's termination reason
+#[derive(Debug)]
 pub struct TerminationDrawer {
     width: u32,
     height: u32,
@@ -102,9 +103,11 @@ impl TerminationDrawer {
         let rtree = svgs.load_svg_tree(&svg_tree)?;
 
         let fit_to = FitTo::Height(self.height);
-        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
-            svg: format!("{}", reason),
-        })?;
+        resvg::render(&rtree, fit_to, Transform::identity(), pixmap.as_mut()).ok_or(
+            DrawerError::SVGRenderError {
+                svg: format!("{}", reason),
+            },
+        )?;
 
         Ok(pixmap)
     }
@@ -118,9 +121,11 @@ impl TerminationDrawer {
         let rtree = svgs.load_svg_tree(&svg_tree)?;
 
         let fit_to = FitTo::Height(self.height);
-        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
-            svg: "win".to_string(),
-        })?;
+        resvg::render(&rtree, fit_to, Transform::identity(), pixmap.as_mut()).ok_or(
+            DrawerError::SVGRenderError {
+                svg: "win".to_string(),
+            },
+        )?;
 
         Ok(pixmap)
     }
@@ -177,8 +182,8 @@ impl TerminationDrawer {
         let loser_x = (width / 8) * u32::from(loser.square.file());
         let loser_y = height - (width / 8) * (u32::from(loser.square.rank()) + 2);
 
-        imageops::overlay(img, &circle_winner, winner_x, winner_y);
-        imageops::overlay(img, &circle_loser, loser_x, loser_y);
+        imageops::overlay(img, &circle_winner, winner_x.into(), winner_y.into());
+        imageops::overlay(img, &circle_loser, loser_x.into(), loser_y.into());
 
         Ok(())
     }

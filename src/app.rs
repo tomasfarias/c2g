@@ -5,6 +5,7 @@ use crate::error::C2GError;
 use crate::giffer::PGNGiffer;
 
 /// The main c2g app.
+#[derive(Debug)]
 pub struct Chess2Gif {
     pgn: String,
     giffer: PGNGiffer,

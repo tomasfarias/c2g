@@ -174,6 +174,7 @@ impl Default for SVGFontConfig {
 
 /// An SVG forest is where you would find SVG trees. SVGForest contains all
 /// methods to produce SVG trees for pieces, circles, and coordinates.
+#[derive(Debug)]
 pub struct SVGForest {
     pieces_path: PathBuf,
     terminations_path: PathBuf,
@@ -244,7 +245,7 @@ impl SVGForest {
             } => self.build_svg_string(s, *h, *w, *x, *y, *b, *c, font_w, font_s),
             s => self.load_svg_string_from_tree(s),
         }?;
-        Tree::from_str(&svg_string, &self.svg_options)
+        Tree::from_str(&svg_string, &self.svg_options.to_ref())
             .map_err(|source| DrawerError::LoadPieceSVG { source })
     }
 

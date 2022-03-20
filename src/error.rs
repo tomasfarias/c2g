@@ -1,4 +1,3 @@
-use std::io::{stderr, Write};
 use std::process;
 
 use thiserror::Error;
@@ -36,22 +35,13 @@ impl C2GError {
     pub fn exit(&self) -> ! {
         match self {
             C2GError::ClapError { source: s } => s.exit(),
-            C2GError::GIFRenderingError { source: _ } => {
-                writeln!(&mut stderr(), "{}", self).ok();
-                process::exit(1);
-            }
-            C2GError::ReadGame { source: _ } => {
-                writeln!(&mut stderr(), "{}", self).ok();
-                process::exit(1);
-            }
-            C2GError::NotDivisibleBy8 => {
-                writeln!(&mut stderr(), "{}", self).ok();
-                process::exit(1);
-            }
-            C2GError::UnknownStyle(s)
-            | C2GError::CannotParseDuration(s)
-            | C2GError::CannotParseColor(s) => {
-                writeln!(&mut stderr(), "{}", s).ok();
+            C2GError::UnknownStyle(_)
+            | C2GError::GIFRenderingError { source: _ }
+            | C2GError::ReadGame { source: _ }
+            | C2GError::NotDivisibleBy8
+            | C2GError::CannotParseDuration(_)
+            | C2GError::CannotParseColor(_) => {
+                eprintln!("Error: {}", self);
                 process::exit(1);
             }
         }

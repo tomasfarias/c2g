@@ -1,5 +1,5 @@
 use image::{imageops, ImageBuffer, Rgba, RgbaImage};
-use shakmaty::{self, File, Move, Pieces, Rank, Role, Square};
+use shakmaty::{self, Board, File, Move, Rank, Role, Square};
 use tiny_skia::{self, Pixmap, PixmapPaint, Transform};
 use usvg::FitTo;
 
@@ -9,6 +9,7 @@ use super::utils;
 
 use crate::config::Color;
 
+#[derive(Debug)]
 pub struct BoardDrawer {
     size: u32,
     flip: bool,
@@ -70,11 +71,7 @@ impl BoardDrawer {
         ImageBuffer::from_pixel(self.square_size(), self.square_size(), self.light)
     }
 
-    pub fn draw_position_from_empty(
-        &mut self,
-        pieces: Pieces,
-        svgs: &SVGForest,
-    ) -> Result<RgbaImage, DrawerError> {
+    pub fn draw_initial_position(&mut self, svgs: &SVGForest) -> Result<RgbaImage, DrawerError> {
         log::debug!("Drawing initial board");
         let mut counter = 1;
         let mut column = ImageBuffer::from_fn(self.square_size(), self.size, |_, y| {
@@ -88,34 +85,35 @@ impl BoardDrawer {
             }
         });
 
-        let mut board = ImageBuffer::new(self.size, self.size);
+        let mut board_img = ImageBuffer::new(self.size, self.size);
         for n in 0..9 {
-            imageops::replace(&mut board, &column, n * self.square_size(), 0);
+            imageops::replace(&mut board_img, &column, (n * self.square_size()).into(), 0);
             imageops::flip_vertical_in_place(&mut column)
         }
 
-        for (square, piece) in pieces {
+        let board = Board::default();
+        for (square, piece) in board.into_iter() {
             log::debug!("Initializing {:?} in {:?}", piece, square);
             self.draw_piece(
                 &square,
                 &piece.role,
                 piece.color,
                 false,
-                &mut board,
+                &mut board_img,
                 None,
                 svgs,
                 false,
             )?;
         }
 
-        self.draw_ranks(2, 6, &mut board, svgs)?;
+        self.draw_ranks(2, 6, &mut board_img, svgs)?;
 
         if self.flip == true {
-            imageops::flip_horizontal_in_place(&mut board);
-            imageops::flip_vertical_in_place(&mut board);
+            imageops::flip_horizontal_in_place(&mut board_img);
+            imageops::flip_vertical_in_place(&mut board_img);
         }
 
-        Ok(board)
+        Ok(board_img)
     }
 
     pub fn draw_ranks(
@@ -275,7 +273,7 @@ impl BoardDrawer {
             imageops::flip_horizontal_in_place(&mut square_img);
         }
 
-        imageops::overlay(img, &square_img, x, y);
+        imageops::overlay(img, &square_img, x.into(), y.into());
 
         Ok(())
     }
@@ -310,7 +308,7 @@ impl BoardDrawer {
             imageops::flip_horizontal_in_place(&mut resized_piece);
         }
 
-        imageops::replace(img, &resized_piece, x, y);
+        imageops::replace(img, &resized_piece, x.into(), y.into());
 
         Ok(())
     }
@@ -335,9 +333,11 @@ impl BoardDrawer {
         let rtree = svgs.load_svg_tree(&piece_tree)?;
         log::debug!("{:?}", rtree.svg_node());
         let mut pixmap = self.square_pixmap(height, width, square, svgs, skip_flip)?;
-        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
-            svg: format!("{}_{}.svg", piece_color.char(), role.char()),
-        })?;
+        resvg::render(&rtree, fit_to, Transform::identity(), pixmap.as_mut()).ok_or(
+            DrawerError::SVGRenderError {
+                svg: format!("{}_{}.svg", piece_color.char(), role.char()),
+            },
+        )?;
 
         ImageBuffer::from_raw(pixmap.width(), pixmap.height(), pixmap.take()).ok_or(
             DrawerError::ImageTooBig {
@@ -383,9 +383,11 @@ impl BoardDrawer {
         let rtree = svgs.load_svg_tree(&coordinate_tree)?;
 
         let fit_to = FitTo::Height(height);
-        resvg::render(&rtree, fit_to, pixmap.as_mut()).ok_or(DrawerError::SVGRenderError {
-            svg: coordinate.to_string(),
-        })?;
+        resvg::render(&rtree, fit_to, Transform::identity(), pixmap.as_mut()).ok_or(
+            DrawerError::SVGRenderError {
+                svg: coordinate.to_string(),
+            },
+        )?;
 
         Ok(pixmap)
     }
@@ -478,7 +480,7 @@ impl BoardDrawer {
         let rtree = svgs.load_svg_tree(&str_tree)?;
 
         let fit_to = FitTo::Height(height);
-        resvg::render(&rtree, fit_to, pixmap.as_mut())
+        resvg::render(&rtree, fit_to, Transform::identity(), pixmap.as_mut())
             .ok_or(DrawerError::SVGRenderError { svg: s.to_string() })?;
 
         Ok(pixmap)
@@ -531,7 +533,7 @@ impl BoardDrawer {
         };
 
         log::debug!("Bottom: {:?}, y: {}", bottom, y);
-        imageops::overlay(img, &player_image, 0, y);
+        imageops::overlay(img, &player_image, 0, y.into());
 
         Ok(())
     }
@@ -586,8 +588,8 @@ impl BoardDrawer {
         imageops::overlay(
             img,
             &player_image,
-            self.size - (self.square_size() * 17 / 8), // This leaves a 1 / 8 * square_size margin on the right side
-            y + self.square_size() / 8,
+            (self.size - (self.square_size() * 17 / 8)).into(), // This leaves a 1 / 8 * square_size margin on the right side
+            (y + self.square_size() / 8).into(),
         );
 
         Ok(())
@@ -595,7 +597,7 @@ impl BoardDrawer {
 
     pub fn add_player_bar_space(&self, img: RgbaImage) -> RgbaImage {
         let mut new_img = RgbaImage::new(self.size, self.size + self.square_size() * 2);
-        imageops::replace(&mut new_img, &img, 0, self.square_size());
+        imageops::replace(&mut new_img, &img, 0, self.square_size().into());
         new_img
     }
 
