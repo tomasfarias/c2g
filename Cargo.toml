@@ -1,8 +1,14 @@
 [package]
 name = "c2g"
-version = "0.7.0"
+version = "0.7.4"
 authors = ["Tomas Farias <tomas@tomasfarias.dev>"]
-edition = "2018"
+edition = "2021"
+description = "Turn your chess PGN files into GIFs!"
+readme = "README.md"
+repository = "https://github.com/tomasfarias/c2g"
+license = "GPL-3.0+"
+license-file = "LICENSE"
+keywords = ["chess", "pgn", "gif"]
 
 [features]
 default = ["include-fonts", "include-svgs"]

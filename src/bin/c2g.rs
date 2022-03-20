@@ -27,7 +27,7 @@ impl Chess2GifCli {
         T: Into<OsString> + Clone,
     {
         let app = App::new("Chess to GIF")
-            .version("0.7.0")
+            .version("0.7.4")
             .author("Tomas Farias <tomas@tomasfarias.dev>")
             .about("Turns a PGN chess game into a GIF")
             .arg(
