@@ -55,11 +55,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
 
-      - name: Publish
-        run: cargo publish
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_TOKEN }}
-
   image_release:
     needs: build
     if: ${{ success() }} && github.event_name != 'pull_request'
@@ -96,3 +91,22 @@ jobs:
             --tag tomasfarias/c2g:latest \
             --tag tomasfarias/c2g:${{ steps.tagName.outputs.tag }} \
             --file ./Dockerfile .
+
+  crate_publish:
+    needs: build
+    if: ${{ success() }} && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Publish
+        run: cargo publish
+        env:
+          CARGO_REGISTRY__TOKEN: ${{ secrets.CRATES_TOKEN }}
