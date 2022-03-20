@@ -169,12 +169,7 @@ impl Chess2GifCli {
 
         let matches = app.get_matches_from_safe(args)?;
 
-        let size = u32::from_str_radix(matches.value_of("size").expect("Size must be defined"), 10)
-            .expect("Size must be a positive number");
-
-        if size % 8 != 0 {
-            return Err(C2GError::NotDivisibleBy8);
-        }
+        let size = Self::get_valid_size(matches.value_of("size").expect("Size must be defined"))?;
 
         let pgn = Self::pgn_or_read_stdin(matches.value_of("PGN"), &mut io::stdin())?;
 
@@ -280,6 +275,16 @@ impl Chess2GifCli {
         }
     }
 
+    fn get_valid_size(s: &str) -> Result<u32, C2GError> {
+        let size = u32::from_str_radix(s, 10).expect("Size must be a positive number");
+
+        if size % 8 != 0 {
+            return Err(C2GError::NotDivisibleBy8);
+        }
+
+        Ok(size)
+    }
+
     fn run(self) -> Result<(), C2GError> {
         self.app.run()
     }
@@ -295,6 +300,49 @@ fn main() -> Result<(), C2GError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_get_valid_size() -> Result<(), String> {
+        let result = Chess2GifCli::get_valid_size("16");
+
+        match result {
+            Ok(v) => {
+                if v == 16 {
+                    Ok(())
+                } else {
+                    Err(String::from(
+                        "Value returned by get_valid_size did not match 16",
+                    ))
+                }
+            }
+            Err(_) => Err(String::from("Returned error despite being divisible by 8")),
+        }
+    }
+
+    #[test]
+    fn test_get_valid_size_with_invalid_input() -> Result<(), String> {
+        let result = Chess2GifCli::get_valid_size("20");
+
+        match result {
+            Ok(v) => {
+                if v == 20 {
+                    Err(String::from(
+                        "Return value despite not being divisible by 8",
+                    ))
+                } else {
+                    Err(String::from("Returned unexpected value"))
+                }
+            }
+            // We expect an error this time
+            Err(_) => Ok(()),
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Size must be a positive number")]
+    fn test_get_valid_size_should_panic() {
+        let _ = Chess2GifCli::get_valid_size("-20");
+    }
 
     #[test]
     fn test_pgn_or_read_stdin_with_none_pgn() -> Result<(), String> {
