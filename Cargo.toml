@@ -21,15 +21,15 @@ include-svgs = ["include_dir"]
 [dependencies]
 clap = "2.33"
 env_logger = "0.9"
-gif = "^0.11.3"
+gif = "^0.12"
 image = "^0.24.1"
 log = "^0.4"
-pgn-reader = "0.20"
+pgn-reader = "0.22"
 regex = "^1.5.5"
 resvg = "0.22"
-shakmaty = "0.21"
+shakmaty = "0.23"
 thiserror = "1.0"
-tiny-skia = "^0.6.3"
+tiny-skia = "0.6"
 usvg = "0.22"
 
 include_dir = { version = "^0.6", optional = true }
