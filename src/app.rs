@@ -20,15 +20,18 @@ impl Chess2Gif {
     }
 
     /// Runs the main c2g app by reading the PGN game provided.
-    pub fn run(mut self) -> Result<(), C2GError> {
+    pub fn run(mut self) -> Result<Option<Vec<u8>>, C2GError> {
         log::info!("Reading PGN");
         let mut reader = BufferedReader::new_cursor(&self.pgn[..]);
 
         match reader.read_game(&mut self.giffer) {
             Ok(result) => match result {
                 // result contains Option<Result<(), C2GError>>
-                Some(r) => Ok(r.unwrap()),
-                None => Ok(()),
+                Some(r) => match r {
+                    Ok(Some(v)) => Ok(Some(v)),
+                    Ok(None) | Err(_) => Ok(None),
+                },
+                None => Ok(None),
             },
             Err(e) => Err(C2GError::ReadGame { source: e }),
         }

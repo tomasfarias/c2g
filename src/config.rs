@@ -64,9 +64,15 @@ impl Default for Colors {
 }
 
 #[derive(Debug, Clone)]
+pub enum Output {
+    Path(String),
+    Buffer,
+}
+
+#[derive(Debug, Clone)]
 pub struct Config {
-    /// Path to GIF output.
-    pub output_path: String,
+    /// GIF output: either a path or a buffer.
+    pub output: Output,
 
     /// Path to SVG files used to render pieces and others.
     pub svgs_path: String,
@@ -99,7 +105,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            output_path: "c2g.gif".to_string(),
+            output: Output::Path("c2g.gif".to_string()),
             svgs_path: "".to_string(),
             font_path: "".to_string(),
             font_family: "roboto".to_string(),

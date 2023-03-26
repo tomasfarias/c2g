@@ -1,6 +1,6 @@
 use std::fmt;
 use std::fs;
-use std::io::BufWriter;
+use std::io::{self, BufWriter, Write};
 use std::ops::Sub;
 use std::time::Duration;
 
@@ -11,7 +11,7 @@ use regex::Regex;
 use shakmaty::{Chess, Color, Position, Role, Square};
 use thiserror::Error;
 
-use crate::config::Config;
+use crate::config::{Config, Output};
 use crate::delay::Delay;
 use crate::drawer::{
     BoardDrawer, DrawerError, PieceInBoard, SVGFontConfig, SVGForest, TerminationDrawer,
@@ -309,6 +309,8 @@ pub enum GifferError {
     },
     #[error("A GIF encoder could not be initialized")]
     InitializeEncoder { source: gif::EncodingError },
+    #[error("A GIF encoder could not be initialized due to an invalid configuration")]
+    InvalidConfig { reason: String },
     #[error("A GIF frame could not be encoded")]
     FrameEncoding { source: gif::EncodingError },
     #[error(transparent)]
@@ -316,6 +318,65 @@ pub enum GifferError {
         #[from]
         source: DrawerError,
     },
+    #[error("Invalid writer variant")]
+    InvalidGifWriterVariant,
+}
+
+/// A GifWriter that supports writing to a file or to an in-memory buffer.
+pub enum GifWriter {
+    File(BufWriter<fs::File>),
+    Buffer(Vec<u8>),
+}
+
+impl GifWriter {
+    pub fn from_output(output: &Output) -> Result<GifWriter, GifferError> {
+        match output {
+            Output::Path(s) => {
+                let file =
+                    fs::File::create(&s).map_err(|source| GifferError::CreateOutput { source })?;
+
+                Ok(GifWriter::File(BufWriter::new(file)))
+            }
+            Output::Buffer => {
+                let v = Vec::new();
+                Ok(GifWriter::Buffer(v))
+            }
+        }
+    }
+
+    pub fn into_file(self) -> Result<fs::File, GifferError> {
+        match self {
+            GifWriter::File(buf) => match buf.into_inner() {
+                Ok(f) => Ok(f),
+                Err(e) => Err(GifferError::InvalidGifWriterVariant {}),
+            },
+            _ => Err(GifferError::InvalidGifWriterVariant {}),
+        }
+    }
+
+    pub fn into_buffer(self) -> Result<Vec<u8>, GifferError> {
+        match self {
+            GifWriter::Buffer(v) => Ok(v),
+            _ => Err(GifferError::InvalidGifWriterVariant {}),
+        }
+    }
+}
+
+/// Implement Write for GifWriter by passing the method calls to variants.
+impl Write for GifWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            GifWriter::File(writer) => writer.write(buf),
+            GifWriter::Buffer(v) => v.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            GifWriter::File(buf) => buf.flush(),
+            GifWriter::Buffer(v) => v.flush(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -376,12 +437,10 @@ impl PGNGiffer {
         &mut self,
         width: u16,
         height: u16,
-    ) -> Result<Encoder<BufWriter<fs::File>>, GifferError> {
-        let file = fs::File::create(&self.config.output_path)
-            .map_err(|source| GifferError::CreateOutput { source })?;
-        let buffer = BufWriter::with_capacity(1000, file);
+    ) -> Result<Encoder<GifWriter>, GifferError> {
+        let writer = GifWriter::from_output(&self.config.output)?;
 
-        let mut encoder = Encoder::new(buffer, width, height, &[])
+        let mut encoder = Encoder::new(writer, width, height, &[])
             .map_err(|source| GifferError::InitializeEncoder { source })?;
         encoder
             .set_repeat(Repeat::Infinite)
@@ -392,7 +451,7 @@ impl PGNGiffer {
 }
 
 impl Visitor for PGNGiffer {
-    type Result = Result<(), GifferError>;
+    type Result = Result<Option<Vec<u8>>, GifferError>;
 
     fn begin_game(&mut self) {
         log::info!("Rendering initial board");
@@ -817,7 +876,13 @@ impl Visitor for PGNGiffer {
                 .map_err(|source| GifferError::FrameEncoding { source })?;
         }
 
-        Ok(())
+        match encoder.into_inner() {
+            Ok(writer) => match writer.into_buffer() {
+                Ok(buf) => Ok(Some(buf)),
+                Err(_) => Ok(None),
+            },
+            Err(_) => Ok(None),
+        }
     }
 }
 

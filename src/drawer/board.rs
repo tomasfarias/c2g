@@ -331,7 +331,6 @@ impl BoardDrawer {
             additional: additional,
         };
         let rtree = svgs.load_svg_tree(&piece_tree)?;
-        log::debug!("{:?}", rtree.svg_node());
         let mut pixmap = self.square_pixmap(height, width, square, svgs, skip_flip)?;
         resvg::render(&rtree, fit_to, Transform::identity(), pixmap.as_mut()).ok_or(
             DrawerError::SVGRenderError {

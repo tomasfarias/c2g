@@ -6,7 +6,7 @@ use std::str::FromStr;
 use clap::{App, Arg};
 
 use c2g::app::Chess2Gif;
-use c2g::config::{Colors, Config};
+use c2g::config::{Colors, Config, Output};
 use c2g::delay::{Delay, Delays};
 use c2g::error::C2GError;
 use c2g::style::{StyleComponent, StyleComponents};
@@ -195,7 +195,12 @@ impl Chess2GifCli {
             .value_of("pieces")
             .expect("Pieces must be defined or default value of cburnett is used");
 
-        let output = matches.value_of("output").expect("Output must be defined");
+        let output = Output::Path(
+            matches
+                .value_of("output")
+                .expect("Output must be defined")
+                .to_string(),
+        );
 
         let dark = matches
             .value_of("dark")
@@ -249,7 +254,7 @@ impl Chess2GifCli {
         let delays = Delays::new(&delay, &first_frame_delay, &last_frame_delay);
 
         let config = Config {
-            output_path: output.to_string(),
+            output: output,
             svgs_path: svgs_path.to_string(),
             font_path: font_path.to_string(),
             font_family: font_family.to_string(),
@@ -286,7 +291,7 @@ impl Chess2GifCli {
         Ok(size)
     }
 
-    fn run(self) -> Result<(), C2GError> {
+    fn run(self) -> Result<Option<Vec<u8>>, C2GError> {
         self.app.run()
     }
 }
@@ -295,7 +300,10 @@ fn main() -> Result<(), C2GError> {
     env_logger::init();
 
     let c2g = Chess2GifCli::new();
-    c2g.run()
+    match c2g.run() {
+        Ok(_) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 #[cfg(test)]
