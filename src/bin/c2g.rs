@@ -120,18 +120,18 @@ impl Chess2GifCli {
                     .short("d")
                     .long("dark")
                     .takes_value(true)
-                    .default_value("118,150,86,1")
+                    .default_value("118,150,86")
                     .multiple(false)
-                    .help("RGBA color to use for the dark squares"),
+                    .help("RGB or HEX color to use for the dark squares"),
             )
             .arg(
                 Arg::with_name("light")
                     .short("l")
                     .long("light")
                     .takes_value(true)
-                    .default_value("238,238,210,1")
+                    .default_value("238,238,210")
                     .multiple(false)
-                    .help("RGBA color to use for the light squares"),
+                    .help("RGB or HEX color to use for the light squares"),
             )
             .arg(
                 Arg::with_name("svgs-path")

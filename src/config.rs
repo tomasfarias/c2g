@@ -12,19 +12,91 @@ impl FromStr for Color {
     type Err = C2GError;
 
     fn from_str(s: &str) -> Result<Self, C2GError> {
-        let mut tmp = Vec::with_capacity(4);
-        for val in s.split(",") {
-            match val.parse::<u8>() {
-                Ok(n) => tmp.push(n),
-                Err(_) => return Err(C2GError::CannotParseColor(s.to_string())),
+        let parse_result = if s.starts_with("#") {
+            from_hex_str(s)
+        } else {
+            from_rgba_str(s)
+        };
+
+        let mut vec_color = match parse_result {
+            Ok(v) => v,
+            Err(e) => {
+                return Err(C2GError::CannotParseColor {
+                    color: s.to_string(),
+                    reason: format!("{}", e),
+                })
             }
+        };
+
+        if vec_color.len() == 3 {
+            vec_color.push(1)
+        } else if vec_color.len() != 4 {
+            return Err(C2GError::CannotParseColor {
+                color: s.to_string(),
+                reason: format!("Parsed vec is not of length 4: {:?}", vec_color),
+            });
         }
-        let rgba = tmp.try_into();
-        match rgba {
-            Ok(n) => Ok(Color(n)),
-            Err(_) => Err(C2GError::CannotParseColor(s.to_string())),
+
+        let try_array = vec_color.try_into();
+        match try_array {
+            Ok(arr) => Ok(Color(arr)),
+            Err(e) => Err(C2GError::CannotParseColor {
+                color: s.to_string(),
+                reason: format!("Vec: {:?}", e),
+            }),
         }
     }
+}
+
+/// Parse an RGBA color string
+fn from_rgba_str(s: &str) -> Result<Vec<u8>, C2GError> {
+    let mut tmp = Vec::with_capacity(3);
+
+    for val in s.split(",") {
+        match val.parse::<u8>() {
+            Ok(n) => tmp.push(n),
+            Err(e) => {
+                return Err(C2GError::CannotParseColor {
+                    color: s.to_string(),
+                    reason: format!("{}", e),
+                })
+            }
+        }
+    }
+
+    Ok(tmp)
+}
+
+/// Parse a HEX color string
+fn from_hex_str(s: &str) -> Result<Vec<u8>, C2GError> {
+    let mut tmp = Vec::with_capacity(4);
+
+    let s = match s.strip_prefix("#") {
+        Some(stripped) => stripped,
+        None => s,
+    };
+
+    let bytes = s.as_bytes();
+
+    for (n, b) in bytes.iter().step_by(2).enumerate() {
+        // We are stepping by 2.
+        let hex_bytes = &[*b, bytes[n * 2 + 1]];
+
+        let hex_number =
+            std::str::from_utf8(hex_bytes).map_err(|e| C2GError::CannotParseColor {
+                color: s.to_string(),
+                reason: format!("{}", e),
+            })?;
+
+        let parsed =
+            u8::from_str_radix(&hex_number, 16).map_err(|e| C2GError::CannotParseColor {
+                color: s.to_string(),
+                reason: format!("{}", e),
+            })?;
+        tmp.push(parsed)
+    }
+
+    Ok(tmp)
 }
 
 impl Color {
@@ -116,5 +188,22 @@ impl Default for Config {
             delays: Delays::default(),
             style_components: StyleComponents::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_color_from_str() {
+        let color = Color::from_str("#B83B26").unwrap();
+        assert_eq!(color.to_arr(), [184, 59, 38, 1]);
+
+        let color = Color::from_str("B83B26").unwrap();
+        assert_eq!(color.to_arr(), [184, 59, 38, 1]);
+
+        let color = Color::from_str("184,59,38").unwrap();
+        assert_eq!(color.to_arr(), [184, 59, 38, 1]);
     }
 }

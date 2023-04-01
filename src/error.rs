@@ -22,8 +22,8 @@ pub enum C2GError {
     UnknownStyle(String),
     #[error("Unable to parse duration {0}")]
     CannotParseDuration(String),
-    #[error("Unable to parse RGBA color {0}")]
-    CannotParseColor(String),
+    #[error("Unable to parse color string {color}")]
+    CannotParseColor { color: String, reason: String },
     #[error("Clap failed")]
     ClapError {
         #[from]
@@ -40,7 +40,10 @@ impl C2GError {
             | C2GError::ReadGame { source: _ }
             | C2GError::NotDivisibleBy8
             | C2GError::CannotParseDuration(_)
-            | C2GError::CannotParseColor(_) => {
+            | C2GError::CannotParseColor {
+                color: _,
+                reason: _,
+            } => {
                 eprintln!("Error: {}", self);
                 process::exit(1);
             }
