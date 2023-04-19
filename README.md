@@ -1,6 +1,6 @@
 # c2g
 
-Turn your chess PGNs to GIFs!
+♟️ Turn your chess PGNs to GIFs. `c2g` also powers a [Yew](https://yew.rs/) web application: [c2g-yew](https://github.com/tomasfarias/c2g-yew).
 
 ## Usage
 
