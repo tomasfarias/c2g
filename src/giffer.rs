@@ -895,8 +895,6 @@ impl Visitor for PGNGiffer {
         let mut next_frame_number = 0;
         let mut frames_to_process = Vec::new();
         for (frame_number, frame) in recv {
-            // frames can arrive in any order, since they're processed in parallel,
-            // so they have to be stored in a queue
             frames_to_process.push((frame_number, frame));
 
             while let Some(index) = frames_to_process
