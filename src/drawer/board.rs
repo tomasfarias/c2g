@@ -613,6 +613,23 @@ impl BoardDrawer {
         Ok(())
     }
 
+    pub fn draw_one_player_clock(
+        &mut self,
+        clock: &str,
+        color: shakmaty::Color,
+        img: &mut RgbaImage,
+        svgs: &SVGForest,
+    ) -> Result<(), DrawerError> {
+        match color {
+            shakmaty::Color::White => {
+                self.draw_player_clock(clock, color, !self.flip, img, svgs)?
+            }
+            shakmaty::Color::Black => self.draw_player_clock(clock, color, self.flip, img, svgs)?,
+        }
+
+        Ok(())
+    }
+
     pub fn draw_player_bars(
         &mut self,
         white_player: &str,

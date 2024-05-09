@@ -7,6 +7,8 @@ use std::time::Duration;
 use gif::{self, Encoder, Frame, Repeat};
 use image::RgbaImage;
 use pgn_reader::{Outcome, RawComment, RawHeader, SanPlus, Skip, Visitor};
+use rayon::iter::ParallelBridge;
+use rayon::iter::ParallelIterator;
 use regex::Regex;
 use shakmaty::{Chess, Color, Position, Role, Square};
 use thiserror::Error;
@@ -615,6 +617,12 @@ impl Visitor for PGNGiffer {
             if self.players.exist() && self.config.style_components.player_bars() == true {
                 log::debug!("Adding player bars");
                 let mut new_board = self.drawer.add_player_bar_space(board);
+
+                if self.position.fullmoves() >= std::num::NonZeroU32::new(1).unwrap() {
+                    self.boards.push(new_board);
+                    return;
+                }
+
                 log::debug!(
                     "New board width: {}, height: {}",
                     new_board.width(),
@@ -625,7 +633,6 @@ impl Visitor for PGNGiffer {
                 self.drawer
                     .draw_player_bars(&white_player, &black_player, &mut new_board, &self.svgs)
                     .expect("Failed to draw player bars");
-
                 self.boards.push(new_board);
             } else {
                 self.boards.push(board);
@@ -640,17 +647,35 @@ impl Visitor for PGNGiffer {
                 // Capture clock comments with regexp, assuming
                 // no other time-like comment appears
                 let re = Regex::new(r"\d{1,2}:\d{2}:(\d{2}.\d{1}|\d{2})").unwrap();
+
                 if let Some(m) = re.find(s) {
                     log::debug!("Found clock time: {}", m.as_str());
                     let clock = Clock::from_time_str(m.as_str());
                     log::debug!("Appending clock: {:?}", clock);
+
                     match self.position.turn() {
                         // This represents the player that moves next, we need to
                         // set the clock of the player that moved last
                         Color::Black => {
+                            self.drawer
+                                .draw_one_player_clock(
+                                    &clock.to_string(),
+                                    Color::White,
+                                    self.boards.last_mut().expect("No board written"),
+                                    &self.svgs,
+                                )
+                                .expect("Failed to draw clock");
                             self.clocks.append(clock, Color::White);
                         }
                         Color::White => {
+                            self.drawer
+                                .draw_one_player_clock(
+                                    &clock.to_string(),
+                                    Color::Black,
+                                    self.boards.last_mut().expect("No board written"),
+                                    &self.svgs,
+                                )
+                                .expect("Failed to draw clock");
                             self.clocks.append(clock, Color::Black);
                         }
                     }
@@ -789,91 +814,107 @@ impl Visitor for PGNGiffer {
             height
         );
 
-        let mut encoder = self.build_encoder(width, height)?;
+        let (send, recv) = std::sync::mpsc::channel();
 
-        for (n, mut b) in self.boards.drain(..).enumerate() {
-            log::debug!("Building frame for board number: {}", n);
-            log::debug!("Board width: {}, height: {}", b.width(), b.height());
+        // Taking a reference to allow us to move into the channel and take ownership of the sender.
+        // This way, sender will be dropped and the channel be closed.
+        let config = &self.config;
+        let clocks = &self.clocks;
 
-            let turn = if n == 0 { n } else { (n - 1) / 2 };
+        self.boards
+            .drain(..)
+            .enumerate()
+            .par_bridge()
+            .try_for_each(move |(n, b)| {
+                log::debug!("Building frame for board number: {}", n);
+                log::debug!("Board width: {}, height: {}", b.width(), b.height());
 
-            let white_clock = self.clocks.white.get(turn);
-            let mut black_clock = self.clocks.black.get(turn);
+                let turn = if n == 0 { n } else { (n - 1) / 2 };
 
-            if turn > 0 && n % 2 != 0 {
-                black_clock = self.clocks.black.get(turn - 1);
-            }
+                let mut frame = Frame::from_rgba_speed(width, height, &mut b.into_raw(), 10);
 
-            if white_clock.is_some()
-                && black_clock.is_some()
-                && self.players.exist()
-                && self.config.style_components.player_bars() == true
-            {
-                self.drawer.draw_player_clocks(
-                    &white_clock.unwrap().to_string(),
-                    &black_clock.unwrap().to_string(),
-                    &mut b,
-                    &self.svgs,
-                )?;
-            }
-
-            let mut frame = Frame::from_rgba_speed(width, height, &mut b.into_raw(), 10);
-
-            log::debug!("Calculating delay for turn: {}", turn);
-            if n == (total_frames - 1) {
-                log::debug!("LAST FRAME");
-                frame.delay = self
-                    .config
-                    .delays
-                    .last_frame_delay()
-                    .expect("Last frame delay not defined")
-                    / 10;
-            } else if n == 0 || n == 1 {
-                frame.delay = self
-                    .config
-                    .delays
-                    .first_frame_delay()
-                    .expect("First frame delay not defined")
-                    / 10;
-            } else {
-                match self.config.delays.frame {
-                    Delay::Duration(d) => {
-                        frame.delay = d / 10;
-                    }
-                    Delay::Real => {
-                        if n & 1 != 0 {
-                            frame.delay = match self.clocks.turn_delay(turn, Color::Black) {
-                                Some(d) => d / 10,
-                                // First move, no previous clock
-                                None => {
-                                    self.config
-                                        .delays
-                                        .first_frame_delay()
-                                        .expect("First frame delay not defined")
-                                        / 10
-                                }
-                            };
-                        } else {
-                            frame.delay = match self.clocks.turn_delay(turn, Color::White) {
-                                Some(d) => d / 10,
-                                // First move, no previous clock
-                                None => {
-                                    self.config
-                                        .delays
-                                        .first_frame_delay()
-                                        .expect("First frame delay not defined")
-                                        / 10
-                                }
-                            };
+                log::debug!("Calculating delay for turn: {}", turn);
+                if n == (total_frames - 1) {
+                    log::debug!("LAST FRAME");
+                    frame.delay = config
+                        .delays
+                        .last_frame_delay()
+                        .expect("Last frame delay not defined")
+                        / 10;
+                } else if n == 0 || n == 1 {
+                    frame.delay = config
+                        .delays
+                        .first_frame_delay()
+                        .expect("First frame delay not defined")
+                        / 10;
+                } else {
+                    match config.delays.frame {
+                        Delay::Duration(d) => {
+                            frame.delay = d / 10;
+                        }
+                        Delay::Real => {
+                            if n & 1 != 0 {
+                                frame.delay = match clocks.turn_delay(turn, Color::Black) {
+                                    Some(d) => d / 10,
+                                    // First move, no previous clock
+                                    None => {
+                                        config
+                                            .delays
+                                            .first_frame_delay()
+                                            .expect("First frame delay not defined")
+                                            / 10
+                                    }
+                                };
+                            } else {
+                                frame.delay = match clocks.turn_delay(turn, Color::White) {
+                                    Some(d) => d / 10,
+                                    // First move, no previous clock
+                                    None => {
+                                        config
+                                            .delays
+                                            .first_frame_delay()
+                                            .expect("First frame delay not defined")
+                                            / 10
+                                    }
+                                };
+                            }
                         }
                     }
                 }
+                log::debug!("Frame delay set to: {}", frame.delay);
+                log::debug!("Encoding frame for board number: {}", n);
+                frame.make_lzw_pre_encoded();
+
+                send.send((n, frame)).unwrap();
+
+                Ok::<(), GifferError>(())
+            })?;
+
+        let mut encoder = self.build_encoder(width, height)?;
+
+        let mut next_frame_number = 0;
+        let mut frames_to_process = Vec::new();
+        for (frame_number, frame) in recv {
+            // frames can arrive in any order, since they're processed in parallel,
+            // so they have to be stored in a queue
+            frames_to_process.push((frame_number, frame));
+
+            while let Some(index) = frames_to_process
+                .iter()
+                .position(|&(num, _)| num == next_frame_number)
+            {
+                log::debug!("Writing frame number: ({}, {})", index, next_frame_number);
+
+                let frame = frames_to_process.remove(index).1;
+
+                encoder
+                    .write_lzw_pre_encoded_frame(&frame)
+                    .map_err(|source| GifferError::FrameEncoding { source })?;
+
+                log::debug!("Writing frame number: ({}, {})", index, next_frame_number);
+
+                next_frame_number += 1;
             }
-            log::debug!("Frame delay set to: {}", frame.delay);
-            log::debug!("Encoding frame for board number: {}", n);
-            encoder
-                .write_frame(&frame)
-                .map_err(|source| GifferError::FrameEncoding { source })?;
         }
 
         match encoder.into_inner() {
