@@ -12,7 +12,7 @@ impl FromStr for Color {
     type Err = C2GError;
 
     fn from_str(s: &str) -> Result<Self, C2GError> {
-        let parse_result = if s.starts_with("#") {
+        let parse_result = if s.starts_with("#") || !s.contains(",") {
             from_hex_str(s)
         } else {
             from_rgba_str(s)
