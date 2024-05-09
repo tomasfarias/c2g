@@ -20,10 +20,11 @@ include-svgs = ["include_dir"]
 [dependencies]
 clap = "2.33"
 env_logger = "0.9"
-gif = "^0.12"
-image = "^0.24.1"
+gif = "^0.13.1"
+image = "^0.25.1"
 log = "^0.4"
 pgn-reader = "0.22"
+rayon = "^1.10"
 regex = "^1.5.5"
 resvg = "0.22"
 shakmaty = "0.23"
