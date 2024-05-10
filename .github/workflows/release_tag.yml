@@ -1,6 +1,7 @@
 name: Build and release on tag creation
 
 on:
+  pull_request:
   push:
     tags:
       - 'v*.*.*'
