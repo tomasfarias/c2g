@@ -1,14 +1,13 @@
-name: Build and release on tag creation
+name: CD
 
 on:
-  pull_request:
   push:
     tags:
       - 'v*.*.*'
 
 jobs:
   build:
-    name: Build and release for ${{ matrix.job.os }}
+    name: Build
     strategy:
       matrix:
         job:
@@ -24,11 +23,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-
       - name: Install rust toolchain
         uses: actions-rs/toolchain@v1
         with:
@@ -42,6 +36,27 @@ jobs:
           command: build
           args: --release --bin c2g --target ${{ matrix.job.target }}
 
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+
+      - name: Upload target
+        uses: actions/upload-artifact@v3
+        with:
+          name: target
+          path: "target/${{ matrix.job.target }}/release/c2g"
+          if-no-files-found: ignore
+
+
+  github_release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
       - name: Package
         shell: bash
         run: |
@@ -49,16 +64,21 @@ jobs:
           tar czvf ../../../c2g-${{ matrix.job.target }}.tar.gz c2g
           cd -
 
+      - name: Download targets
+        uses: actions/download-artifact@v3
+        with:
+          name: target
+
       - name: Release
         uses: softprops/action-gh-release@v1
         with:
-          files: 'c2g*'
+          files: 'target/*/release/c2g*'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN  }}
 
+
   image_release:
     needs: build
-    if: ${{ success() }} && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
@@ -95,7 +115,6 @@ jobs:
 
   crate_publish:
     needs: build
-    if: ${{ success() }} && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     steps:
