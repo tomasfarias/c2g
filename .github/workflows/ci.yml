@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  build:
+    name: Build
+    strategy:
+      matrix:
+        job:
+          - { os: macos-latest,   target: x86_64-apple-darwin,         use-cross: false }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc,      use-cross: false }
+          - { os: ubuntu-latest , target: x86_64-unknown-linux-gnu,    use-cross: false }
+          - { os: ubuntu-latest,  target: x86_64-unknown-linux-musl,   use-cross: true }
+          - { os: ubuntu-latest,  target: arm-unknown-linux-gnueabihf, use-cross: true }
+          - { os: ubuntu-latest,  target: aarch64-unknown-linux-gnu,   use-cross: true }
+    runs-on: ${{ matrix.job.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Install rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+
+      - name: Build target
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.job.use-cross }}
+          command: build
+          args: --release --bin c2g --target ${{ matrix.job.target }}
+
+      - name: Test
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
