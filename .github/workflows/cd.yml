@@ -21,25 +21,27 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          profile: minimal
+          targets: ${{ matrix.job.target }}
 
       - name: Build target
-        uses: actions-rs/cargo@v1
+        uses: houseabsolute/actions-rust-cross@v0
         with:
-          use-cross: ${{ matrix.job.use-cross }}
           command: build
-          args: --release --bin c2g --target ${{ matrix.job.target }}
+          target: ${{ matrix.job.target }}
+          args: "--locked --release --bin c2g"
+          strip: true
+
+      - name: Format
+        run: cargo fmt --all -- --check
 
       - name: Test
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
+        run: cargo test
 
       - name: Upload target
         uses: actions/upload-artifact@v3
@@ -83,7 +85,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: crazy-max/ghaction-docker-buildx@v3
@@ -119,10 +121,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Install rust toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
 
