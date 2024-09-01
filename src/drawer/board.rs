@@ -1,5 +1,5 @@
 use image::{imageops, ImageBuffer, Rgba, RgbaImage};
-use shakmaty::{self, Board, File, Move, Rank, Role, Square};
+use shakmaty::{self, Chess, File, Move, Position, Rank, Role, Square};
 use tiny_skia::{self, Pixmap, PixmapPaint, Transform};
 use usvg::FitTo;
 
@@ -70,9 +70,12 @@ impl BoardDrawer {
     pub fn light_square(&self) -> RgbaImage {
         ImageBuffer::from_pixel(self.square_size(), self.square_size(), self.light)
     }
-
-    pub fn draw_initial_position(&mut self, svgs: &SVGForest) -> Result<RgbaImage, DrawerError> {
-        log::debug!("Drawing initial board");
+    pub fn draw_position(
+        &mut self,
+        position: &Chess,
+        svgs: &SVGForest,
+    ) -> Result<RgbaImage, DrawerError> {
+        log::debug!("Drawing position");
         let mut counter = 1;
         let mut column = ImageBuffer::from_fn(self.square_size(), self.size, |_, y| {
             if y >= self.square_size() * counter {
@@ -91,19 +94,25 @@ impl BoardDrawer {
             imageops::flip_vertical_in_place(&mut column)
         }
 
-        let board = Board::default();
-        for (square, piece) in board.into_iter() {
-            log::debug!("Initializing {:?} in {:?}", piece, square);
-            self.draw_piece(
-                &square,
-                &piece.role,
-                piece.color,
-                false,
-                &mut board_img,
-                None,
-                svgs,
-                false,
-            )?;
+        for rank in Rank::ALL.into_iter().rev() {
+            for file in File::ALL {
+                let square = Square::from_coords(file, rank);
+                if let Some(piece) = position.board().piece_at(square) {
+                    log::debug!("Drawing {:?} in {:?}", piece, square);
+                    self.draw_piece(
+                        &square,
+                        &piece.role,
+                        piece.color,
+                        false,
+                        &mut board_img,
+                        None,
+                        svgs,
+                        false,
+                    )?;
+                } else {
+                    self.draw_square(&square, &mut board_img, svgs)?;
+                }
+            }
         }
 
         self.draw_ranks(2, 6, &mut board_img, svgs)?;
@@ -112,6 +121,14 @@ impl BoardDrawer {
             imageops::flip_horizontal_in_place(&mut board_img);
             imageops::flip_vertical_in_place(&mut board_img);
         }
+
+        Ok(board_img)
+    }
+
+    pub fn draw_initial_position(&mut self, svgs: &SVGForest) -> Result<RgbaImage, DrawerError> {
+        log::debug!("Drawing initial position");
+        let position = Chess::default();
+        let board_img = self.draw_position(&position, svgs)?;
 
         Ok(board_img)
     }
