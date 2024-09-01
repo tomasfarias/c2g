@@ -81,8 +81,9 @@ impl Chess2GifCli {
             )
             .arg(
                 Arg::with_name("style")
-                    .long("no-player-bars")
-                    .takes_value(false)
+                    .long("style")
+                    .takes_value(true)
+                    .default_value("full")
                     .overrides_with("plain")
                     .validator(|val| {
                         let mut invalid_vals = val.split(',').filter(|style| {
@@ -114,6 +115,15 @@ impl Chess2GifCli {
                          * coordintes: show both ranks and files. Same as 'ranks,files'.\n  \
                          * player-bars: draw bars with player information like names and ELO.",
                     ),
+            )
+            .arg(
+                Arg::with_name("plain")
+                    .long("plain")
+                    .takes_value(false)
+                    .overrides_with("style")
+                    .help(
+                        "Use plain style.",
+                    )
             )
             .arg(
                 Arg::with_name("dark")
